@@ -1,8 +1,4 @@
-use std::{
-    fmt::{self, Display, Formatter},
-    ops::{Add, Div, Mul, Sub},
-    str::FromStr,
-};
+use std::{fmt::Display, str::FromStr};
 
 use anyhow::{anyhow, Context};
 use colored::Colorize;
@@ -16,7 +12,8 @@ use nom::{
     Err, IResult,
 };
 use num_bigint::{BigInt, ParseBigIntError};
-use num_traits::{One, Zero};
+
+use crate::number::Number;
 
 pub struct ExprError(anyhow::Error);
 
@@ -42,114 +39,25 @@ impl<I> FromExternalError<I, ParseBigIntError> for ExprError {
 
 #[derive(Clone, Debug)]
 pub enum Expr {
-    Literal(Rational),
+    Literal(Number),
     BinOp(ExprBinOp),
 }
 
 impl Expr {
-    pub fn evaluate(self) -> Rational {
+    pub fn evaluate(self) -> anyhow::Result<Number> {
         match self {
-            Self::Literal(rational) => rational,
+            Self::Literal(number) => Ok(number),
             Self::BinOp(expr) => {
-                let lhs = expr.lhs.evaluate();
-                let rhs = expr.rhs.evaluate();
+                let lhs = expr.lhs.evaluate()?;
+                let rhs = expr.rhs.evaluate()?;
                 match expr.bin_op {
-                    BinOp::Add => lhs + rhs,
-                    BinOp::Sub => lhs - rhs,
-                    BinOp::Mul => lhs * rhs,
-                    BinOp::Div => lhs / rhs,
+                    BinOp::Add => Ok(lhs + rhs),
+                    BinOp::Sub => Ok(lhs - rhs),
+                    BinOp::Mul => Ok(lhs * rhs),
+                    BinOp::Div => Ok(lhs / rhs),
+                    BinOp::Pow => lhs.pow(rhs),
                 }
             }
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct Rational {
-    numerator: BigInt,
-    denominator: BigInt,
-}
-
-impl Add for Rational {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        if self.denominator == rhs.denominator {
-            Self {
-                numerator: self.numerator + rhs.numerator,
-                ..self
-            }
-        } else {
-            Self {
-                numerator: self.numerator * rhs.denominator.clone()
-                    + rhs.numerator * self.denominator.clone(),
-                denominator: self.denominator * rhs.denominator,
-            }
-        }
-    }
-}
-
-impl Sub for Rational {
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        if self.denominator == rhs.denominator {
-            Self {
-                numerator: self.numerator - rhs.numerator,
-                ..self
-            }
-        } else {
-            Self {
-                numerator: self.numerator * rhs.denominator.clone()
-                    - rhs.numerator * self.denominator.clone(),
-                denominator: self.denominator * rhs.denominator,
-            }
-        }
-    }
-}
-
-impl Mul for Rational {
-    type Output = Self;
-
-    fn mul(self, rhs: Self) -> Self::Output {
-        Self {
-            numerator: self.numerator * rhs.numerator,
-            denominator: self.denominator * rhs.denominator,
-        }
-    }
-}
-
-impl Div for Rational {
-    type Output = Self;
-
-    fn div(self, rhs: Self) -> Self::Output {
-        Self {
-            numerator: self.numerator * rhs.denominator,
-            denominator: self.denominator * rhs.numerator,
-        }
-    }
-}
-
-impl Display for Rational {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        if self.denominator == BigInt::zero() {
-            return write!(f, "∞");
-        }
-
-        write!(f, "{}", self.numerator)?;
-        if self.denominator != BigInt::one() {
-            write!(f, "/{}", self.denominator)?;
-        }
-
-        Ok(())
-    }
-}
-
-impl From<BigInt> for Rational {
-    fn from(value: BigInt) -> Self {
-        Rational {
-            numerator: value,
-            denominator: BigInt::one(),
         }
     }
 }
@@ -161,19 +69,20 @@ pub struct ExprBinOp {
     rhs: Box<Expr>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum BinOp {
     Add,
     Sub,
     Mul,
     Div,
+    Pow,
 }
 
 impl BinOp {
     fn precedence(self) -> Precedence {
         match self {
             Self::Add | Self::Sub => Precedence::Term,
-            Self::Mul | Self::Div => Precedence::Factor,
+            Self::Mul | Self::Div | Self::Pow => Precedence::Factor,
         }
     }
 }
@@ -227,7 +136,9 @@ fn expr_helper(
         let next_precedence = opt(parse_bin_op)(s)?
             .1
             .map_or(Precedence::Any, |bin_op| bin_op.precedence());
-        if next_precedence > bin_op.precedence() {
+        if next_precedence > bin_op.precedence()
+            || next_precedence == bin_op.precedence() && bin_op == BinOp::Pow
+        {
             (s, rhs) = expr_helper(s, rhs, next_precedence)?;
         }
 
@@ -245,8 +156,8 @@ fn parse_unary(s: &str) -> IResult<&str, Expr, ExprError> {
     map(parse_integer, Expr::Literal)(s)
 }
 
-fn parse_integer(s: &str) -> IResult<&str, Rational, ExprError> {
-    map(map_res(digit1, BigInt::from_str), Rational::from)(s)
+fn parse_integer(s: &str) -> IResult<&str, Number, ExprError> {
+    map(map_res(digit1, BigInt::from_str), Number::from)(s)
 }
 
 fn parse_bin_op(s: &str) -> IResult<&str, BinOp, ExprError> {
@@ -255,5 +166,6 @@ fn parse_bin_op(s: &str) -> IResult<&str, BinOp, ExprError> {
         map(tag("-"), |_| BinOp::Sub),
         map(tag("*"), |_| BinOp::Mul),
         map(tag("/"), |_| BinOp::Div),
+        map(tag("^"), |_| BinOp::Pow),
     ))(s)
 }

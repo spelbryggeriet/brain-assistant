@@ -1,3 +1,4 @@
+mod number;
 mod parser;
 
 use std::io::{stdin, stdout, Write};
@@ -37,7 +38,15 @@ fn run() -> anyhow::Result<()> {
             }
         };
 
-        println!("{}", expr.evaluate().to_string().blue());
+        let eval = match expr.evaluate() {
+            Ok(eval) => eval,
+            Err(err) => {
+                report_user_error(err);
+                continue;
+            }
+        };
+
+        println!("{}", eval.to_string().blue());
     }
 }
 
