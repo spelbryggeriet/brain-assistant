@@ -40,6 +40,7 @@ impl<I> FromExternalError<I, ParseBigIntError> for ExprError {
 #[derive(Clone, Debug)]
 pub enum Expr {
     Literal(Number),
+    UnOp(ExprUnOp),
     BinOp(ExprBinOp),
 }
 
@@ -47,6 +48,12 @@ impl Expr {
     pub fn evaluate(self) -> anyhow::Result<Number> {
         match self {
             Self::Literal(number) => Ok(number),
+            Self::UnOp(expr) => {
+                let operand = expr.operand.evaluate()?;
+                match expr.un_op {
+                    UnOp::Factorial => Ok(operand.factorial()),
+                }
+            }
             Self::BinOp(expr) => {
                 let lhs = expr.lhs.evaluate()?;
                 let rhs = expr.rhs.evaluate()?;
@@ -60,6 +67,17 @@ impl Expr {
             }
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct ExprUnOp {
+    un_op: UnOp,
+    operand: Box<Expr>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum UnOp {
+    Factorial,
 }
 
 #[derive(Clone, Debug)]
@@ -153,10 +171,21 @@ fn expr_helper(
 }
 
 fn parse_unary(s: &str) -> IResult<&str, Expr, ExprError> {
-    map(parse_integer, Expr::Literal)(s)
+    let (s, literal) = map(parse_number, Expr::Literal)(s)?;
+    if let (s, Some(un_op)) = opt(map(tag("!"), |_| UnOp::Factorial))(s)? {
+        Ok((
+            s,
+            Expr::UnOp(ExprUnOp {
+                un_op,
+                operand: Box::new(literal),
+            }),
+        ))
+    } else {
+        Ok((s, literal))
+    }
 }
 
-fn parse_integer(s: &str) -> IResult<&str, Number, ExprError> {
+fn parse_number(s: &str) -> IResult<&str, Number, ExprError> {
     map(map_res(digit1, BigInt::from_str), Number::from)(s)
 }
 

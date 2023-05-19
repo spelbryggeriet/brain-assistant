@@ -1,11 +1,11 @@
 use std::{
     fmt::{self, Display, Formatter},
-    ops::{Add, Div, Mul, Sub},
+    ops::{Add, Div, Mul, Neg, Sub},
 };
 
 use anyhow::ensure;
 use num_bigint::{BigInt, BigUint, Sign};
-use num_traits::{One, Zero};
+use num_traits::{One, Signed, Zero};
 
 #[derive(Clone, Debug)]
 pub enum Number {
@@ -18,6 +18,13 @@ impl Number {
         match (self, rhs) {
             (Self::Ratio(lhs), Self::Ratio(rhs)) => lhs.pow(rhs),
             _ => Ok(Self::Undefined),
+        }
+    }
+
+    pub fn factorial(self) -> Self {
+        match self {
+            Self::Ratio(operand) => operand.factorial(),
+            _ => Self::Undefined,
         }
     }
 }
@@ -68,10 +75,7 @@ impl Div for Number {
 
 impl From<BigInt> for Number {
     fn from(value: BigInt) -> Self {
-        Number::Ratio(Ratio {
-            numerator: value,
-            denominator: BigInt::one(),
-        })
+        Self::Ratio(Ratio::from(value))
     }
 }
 
@@ -115,10 +119,6 @@ impl Ratio {
             (numerator, denominator) = (denominator, numerator);
         }
 
-        if rhs.denominator == BigInt::zero() {
-            return Ok(Number::Undefined);
-        }
-
         if rhs.denominator.magnitude() > &BigUint::one() {
             ensure!(
                 rhs.denominator.bits() <= 32,
@@ -135,6 +135,39 @@ impl Ratio {
             numerator,
             denominator,
         }))
+    }
+
+    fn factorial(mut self) -> Number {
+        if self.is_negative() {
+            return Number::Undefined;
+        }
+
+        if self.numerator.is_negative() {
+            self.numerator = self.numerator.neg();
+        }
+
+        if self.denominator != BigInt::one() {
+            // TODO: implement gamma function.
+            return Number::Undefined;
+        }
+
+        if self.numerator == BigInt::zero() {
+            return Number::from(BigInt::one());
+        }
+
+        let two = BigInt::from(2_u32);
+        if self.numerator <= two {
+            return Number::from(self.numerator);
+        }
+
+        let mut res = BigInt::one();
+        while self.numerator > two {
+            res *= self.numerator.clone();
+            self.numerator -= BigInt::one();
+        }
+        res *= self.numerator;
+
+        Number::from(res)
     }
 }
 
@@ -198,6 +231,15 @@ impl Div for Ratio {
                 numerator: self.numerator * rhs.denominator,
                 denominator: self.denominator * rhs.numerator,
             })
+        }
+    }
+}
+
+impl From<BigInt> for Ratio {
+    fn from(value: BigInt) -> Self {
+        Self {
+            numerator: value,
+            denominator: BigInt::one(),
         }
     }
 }
