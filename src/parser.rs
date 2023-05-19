@@ -1,6 +1,6 @@
 use std::{
     fmt::{self, Display, Formatter},
-    ops::{Add, Mul, Sub},
+    ops::{Add, Div, Mul, Sub},
     str::FromStr,
 };
 
@@ -57,6 +57,7 @@ impl Expr {
                     BinOp::Add => lhs + rhs,
                     BinOp::Sub => lhs - rhs,
                     BinOp::Mul => lhs * rhs,
+                    BinOp::Div => lhs / rhs,
                 }
             }
         }
@@ -118,6 +119,17 @@ impl Mul for Rational {
     }
 }
 
+impl Div for Rational {
+    type Output = Self;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        Self {
+            numerator: self.numerator * rhs.denominator,
+            denominator: self.denominator * rhs.numerator,
+        }
+    }
+}
+
 impl Display for Rational {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         if self.denominator == BigInt::zero() {
@@ -154,13 +166,14 @@ enum BinOp {
     Add,
     Sub,
     Mul,
+    Div,
 }
 
 impl BinOp {
     fn precedence(self) -> Precedence {
         match self {
             Self::Add | Self::Sub => Precedence::Term,
-            Self::Mul => Precedence::Factor,
+            Self::Mul | Self::Div => Precedence::Factor,
         }
     }
 }
@@ -202,15 +215,21 @@ fn expr_helper(
     mut lhs: Expr,
     base_precedence: Precedence,
 ) -> IResult<&str, Expr, ExprError> {
-    let mut bin_op_unary_pair = opt(pair(parse_bin_op, parse_unary));
+    let mut parse_bin_op_unary_pair = opt(pair(parse_bin_op, parse_unary));
 
-    while let (s_ahead, Some((bin_op, mut rhs))) = bin_op_unary_pair(s)? {
-        let precedence = bin_op.precedence();
-        if precedence < base_precedence {
-            return Ok((s, lhs));
+    while let (s_ahead, Some((bin_op, mut rhs))) = parse_bin_op_unary_pair(s)? {
+        if bin_op.precedence() < base_precedence {
+            break;
         }
 
-        (s, rhs) = expr_helper(s_ahead, rhs, precedence)?;
+        s = s_ahead;
+
+        let next_precedence = opt(parse_bin_op)(s)?
+            .1
+            .map_or(Precedence::Any, |bin_op| bin_op.precedence());
+        if next_precedence > bin_op.precedence() {
+            (s, rhs) = expr_helper(s, rhs, next_precedence)?;
+        }
 
         lhs = Expr::BinOp(ExprBinOp {
             bin_op,
@@ -235,5 +254,6 @@ fn parse_bin_op(s: &str) -> IResult<&str, BinOp, ExprError> {
         map(tag("+"), |_| BinOp::Add),
         map(tag("-"), |_| BinOp::Sub),
         map(tag("*"), |_| BinOp::Mul),
+        map(tag("/"), |_| BinOp::Div),
     ))(s)
 }
