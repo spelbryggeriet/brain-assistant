@@ -8,12 +8,12 @@ use num_bigint::{BigInt, BigUint, Sign};
 use num_traits::{One, Signed, Zero};
 
 #[derive(Clone, Debug)]
-pub enum Number {
+pub enum Value {
     Ratio(Ratio),
     Undefined,
 }
 
-impl Number {
+impl Value {
     pub fn pow(self, rhs: Self) -> anyhow::Result<Self> {
         match (self, rhs) {
             (Self::Ratio(lhs), Self::Ratio(rhs)) => lhs.pow(rhs),
@@ -29,7 +29,7 @@ impl Number {
     }
 }
 
-impl Add for Number {
+impl Add for Value {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
@@ -40,7 +40,7 @@ impl Add for Number {
     }
 }
 
-impl Sub for Number {
+impl Sub for Value {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
@@ -51,7 +51,7 @@ impl Sub for Number {
     }
 }
 
-impl Mul for Number {
+impl Mul for Value {
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self::Output {
@@ -62,7 +62,7 @@ impl Mul for Number {
     }
 }
 
-impl Div for Number {
+impl Div for Value {
     type Output = Self;
 
     fn div(self, rhs: Self) -> Self::Output {
@@ -73,13 +73,13 @@ impl Div for Number {
     }
 }
 
-impl From<BigInt> for Number {
+impl From<BigInt> for Value {
     fn from(value: BigInt) -> Self {
         Self::Ratio(Ratio::from(value))
     }
 }
 
-impl Display for Number {
+impl Display for Value {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             Self::Ratio(r) => r.fmt(f),
@@ -99,7 +99,7 @@ impl Ratio {
         (self.numerator.sign() == Sign::Minus) != (self.denominator.sign() == Sign::Minus)
     }
 
-    fn pow(self, rhs: Self) -> anyhow::Result<Number> {
+    fn pow(self, rhs: Self) -> anyhow::Result<Value> {
         let (mut numerator, mut denominator) = if rhs.numerator == BigInt::zero() {
             (BigInt::one(), BigInt::one())
         } else if rhs.numerator.magnitude() == &BigUint::one() {
@@ -131,15 +131,15 @@ impl Ratio {
                 (numerator.nth_root(exponent), denominator.nth_root(exponent));
         }
 
-        Ok(Number::Ratio(Ratio {
+        Ok(Value::Ratio(Ratio {
             numerator,
             denominator,
         }))
     }
 
-    fn factorial(mut self) -> Number {
+    fn factorial(mut self) -> Value {
         if self.is_negative() {
-            return Number::Undefined;
+            return Value::Undefined;
         }
 
         if self.numerator.is_negative() {
@@ -148,16 +148,16 @@ impl Ratio {
 
         if self.denominator != BigInt::one() {
             // TODO: implement gamma function.
-            return Number::Undefined;
+            return Value::Undefined;
         }
 
         if self.numerator == BigInt::zero() {
-            return Number::from(BigInt::one());
+            return Value::from(BigInt::one());
         }
 
         let two = BigInt::from(2_u32);
         if self.numerator <= two {
-            return Number::from(self.numerator);
+            return Value::from(self.numerator);
         }
 
         let mut res = BigInt::one();
@@ -167,7 +167,7 @@ impl Ratio {
         }
         res *= self.numerator;
 
-        Number::from(res)
+        Value::from(res)
     }
 }
 
@@ -221,13 +221,13 @@ impl Mul for Ratio {
 }
 
 impl Div for Ratio {
-    type Output = Number;
+    type Output = Value;
 
     fn div(self, rhs: Self) -> Self::Output {
         if rhs.numerator == BigInt::zero() {
-            Number::Undefined
+            Value::Undefined
         } else {
-            Number::Ratio(Self {
+            Value::Ratio(Self {
                 numerator: self.numerator * rhs.denominator,
                 denominator: self.denominator * rhs.numerator,
             })

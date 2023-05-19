@@ -13,7 +13,7 @@ use nom::{
 };
 use num_bigint::{BigInt, ParseBigIntError};
 
-use crate::number::Number;
+use crate::number::Value;
 
 pub struct ExprError(anyhow::Error);
 
@@ -39,13 +39,13 @@ impl<I> FromExternalError<I, ParseBigIntError> for ExprError {
 
 #[derive(Clone, Debug)]
 pub enum Expr {
-    Literal(Number),
+    Literal(Value),
     UnOp(ExprUnOp),
     BinOp(ExprBinOp),
 }
 
 impl Expr {
-    pub fn evaluate(self) -> anyhow::Result<Number> {
+    pub fn evaluate(self) -> anyhow::Result<Value> {
         match self {
             Self::Literal(number) => Ok(number),
             Self::UnOp(expr) => {
@@ -185,8 +185,8 @@ fn parse_unary(s: &str) -> IResult<&str, Expr, ExprError> {
     }
 }
 
-fn parse_number(s: &str) -> IResult<&str, Number, ExprError> {
-    map(map_res(digit1, BigInt::from_str), Number::from)(s)
+fn parse_number(s: &str) -> IResult<&str, Value, ExprError> {
+    map(map_res(digit1, BigInt::from_str), Value::from)(s)
 }
 
 fn parse_bin_op(s: &str) -> IResult<&str, BinOp, ExprError> {
