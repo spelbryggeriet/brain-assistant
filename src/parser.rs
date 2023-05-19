@@ -1,6 +1,6 @@
 use std::{
     fmt::{self, Display, Formatter},
-    ops::{Add, Mul},
+    ops::{Add, Mul, Sub},
     str::FromStr,
 };
 
@@ -55,6 +55,7 @@ impl Expr {
                 let rhs = expr.rhs.evaluate();
                 match expr.bin_op {
                     BinOp::Add => lhs + rhs,
+                    BinOp::Sub => lhs - rhs,
                     BinOp::Mul => lhs * rhs,
                 }
             }
@@ -81,6 +82,25 @@ impl Add for Rational {
             Self {
                 numerator: self.numerator * rhs.denominator.clone()
                     + rhs.numerator * self.denominator.clone(),
+                denominator: self.denominator * rhs.denominator,
+            }
+        }
+    }
+}
+
+impl Sub for Rational {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        if self.denominator == rhs.denominator {
+            Self {
+                numerator: self.numerator - rhs.numerator,
+                ..self
+            }
+        } else {
+            Self {
+                numerator: self.numerator * rhs.denominator.clone()
+                    - rhs.numerator * self.denominator.clone(),
                 denominator: self.denominator * rhs.denominator,
             }
         }
@@ -132,13 +152,14 @@ pub struct ExprBinOp {
 #[derive(Clone, Copy, Debug)]
 enum BinOp {
     Add,
+    Sub,
     Mul,
 }
 
 impl BinOp {
     fn precedence(self) -> Precedence {
         match self {
-            Self::Add => Precedence::Term,
+            Self::Add | Self::Sub => Precedence::Term,
             Self::Mul => Precedence::Factor,
         }
     }
@@ -210,5 +231,9 @@ fn parse_integer(s: &str) -> IResult<&str, Rational, ExprError> {
 }
 
 fn parse_bin_op(s: &str) -> IResult<&str, BinOp, ExprError> {
-    alt((map(tag("+"), |_| BinOp::Add), map(tag("*"), |_| BinOp::Mul)))(s)
+    alt((
+        map(tag("+"), |_| BinOp::Add),
+        map(tag("-"), |_| BinOp::Sub),
+        map(tag("*"), |_| BinOp::Mul),
+    ))(s)
 }
