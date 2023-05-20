@@ -8,8 +8,8 @@ use nom::{
     character::complete::digit1,
     combinator::{map, map_res, opt},
     error::{ErrorKind, FromExternalError, ParseError},
-    sequence::pair,
-    Err, IResult,
+    sequence::{delimited, pair},
+    Err, IResult, Parser,
 };
 use num_bigint::{BigInt, ParseBigIntError};
 
@@ -174,7 +174,13 @@ fn expr_helper(
 
 fn parse_unary(s: &str) -> IResult<&str, Expr, ExprError> {
     let (s, prefix_op) = opt(parse_prefix_un_op)(s)?;
-    let (s, mut expr) = map(parse_number, Expr::Literal)(s)?;
+
+    let (s, mut expr) = if peek(tag("("))(s)? {
+        delimited(tag("("), parse_expr, tag(")"))(s)?
+    } else {
+        map(parse_number, Expr::Literal)(s)?
+    };
+
     let (s, postfix_op) = opt(parse_postfix_un_op)(s)?;
 
     if let Some(un_op) = postfix_op {
@@ -214,4 +220,11 @@ fn parse_bin_op(s: &str) -> IResult<&str, BinOp, ExprError> {
         map(tag("/"), |_| BinOp::Div),
         map(tag("^"), |_| BinOp::Pow),
     ))(s)
+}
+
+fn peek<'a, P, T>(p: P) -> impl FnOnce(&'a str) -> Result<bool, Err<ExprError>>
+where
+    P: Parser<&'a str, T, ExprError>,
+{
+    |s| Ok(opt(p)(s)?.1.is_some())
 }
