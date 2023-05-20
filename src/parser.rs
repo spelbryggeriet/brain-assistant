@@ -51,6 +51,7 @@ impl Expr {
             Self::UnOp(expr) => {
                 let operand = expr.operand.evaluate()?;
                 match expr.un_op {
+                    UnOp::Negate => Ok(-operand),
                     UnOp::Factorial => Ok(operand.factorial()),
                 }
             }
@@ -77,6 +78,7 @@ pub struct ExprUnOp {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum UnOp {
+    Negate,
     Factorial,
 }
 
@@ -171,22 +173,37 @@ fn expr_helper(
 }
 
 fn parse_unary(s: &str) -> IResult<&str, Expr, ExprError> {
-    let (s, literal) = map(parse_number, Expr::Literal)(s)?;
-    if let (s, Some(un_op)) = opt(map(tag("!"), |_| UnOp::Factorial))(s)? {
-        Ok((
-            s,
-            Expr::UnOp(ExprUnOp {
-                un_op,
-                operand: Box::new(literal),
-            }),
-        ))
-    } else {
-        Ok((s, literal))
+    let (s, prefix_op) = opt(parse_prefix_un_op)(s)?;
+    let (s, mut expr) = map(parse_number, Expr::Literal)(s)?;
+    let (s, postfix_op) = opt(parse_postfix_un_op)(s)?;
+
+    if let Some(un_op) = postfix_op {
+        expr = Expr::UnOp(ExprUnOp {
+            un_op,
+            operand: Box::new(expr),
+        });
     }
+
+    if let Some(un_op) = prefix_op {
+        expr = Expr::UnOp(ExprUnOp {
+            un_op,
+            operand: Box::new(expr),
+        });
+    }
+
+    Ok((s, expr))
 }
 
 fn parse_number(s: &str) -> IResult<&str, Value, ExprError> {
     map(map_res(digit1, BigInt::from_str), Value::from)(s)
+}
+
+fn parse_prefix_un_op(s: &str) -> IResult<&str, UnOp, ExprError> {
+    map(tag("-"), |_| UnOp::Negate)(s)
+}
+
+fn parse_postfix_un_op(s: &str) -> IResult<&str, UnOp, ExprError> {
+    map(tag("!"), |_| UnOp::Factorial)(s)
 }
 
 fn parse_bin_op(s: &str) -> IResult<&str, BinOp, ExprError> {

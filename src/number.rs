@@ -29,6 +29,17 @@ impl Value {
     }
 }
 
+impl Neg for Value {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        match self {
+            Self::Ratio(operand) => Self::Ratio(-operand),
+            _ => Self::Undefined,
+        }
+    }
+}
+
 impl Add for Value {
     type Output = Self;
 
@@ -171,6 +182,17 @@ impl Ratio {
     }
 }
 
+impl Neg for Ratio {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self {
+            numerator: -self.numerator,
+            denominator: self.denominator,
+        }
+    }
+}
+
 impl Add for Ratio {
     type Output = Self;
 
@@ -247,6 +269,7 @@ impl From<BigInt> for Ratio {
 impl Display for Ratio {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{}", self.numerator)?;
+
         if self.denominator != BigInt::one() {
             write!(f, "/{}", self.denominator)?;
         }
