@@ -13,7 +13,10 @@ use nom::{
 };
 use num_bigint::{BigInt, ParseBigIntError};
 
-use crate::number::Value;
+use crate::{
+    expr::{BinOp, Expr, ExprBinOp, ExprUnOp, Precedence, UnOp},
+    number::Value,
+};
 
 pub struct ExprError(anyhow::Error);
 
@@ -35,83 +38,6 @@ impl<I> FromExternalError<I, ParseBigIntError> for ExprError {
     fn from_external_error(_: I, _: ErrorKind, e: ParseBigIntError) -> Self {
         Self(e.into())
     }
-}
-
-#[derive(Clone, Debug)]
-pub enum Expr {
-    Literal(Value),
-    UnOp(ExprUnOp),
-    BinOp(ExprBinOp),
-}
-
-impl Expr {
-    pub fn evaluate(self) -> anyhow::Result<Value> {
-        match self {
-            Self::Literal(number) => Ok(number),
-            Self::UnOp(expr) => {
-                let operand = expr.operand.evaluate()?;
-                match expr.un_op {
-                    UnOp::Negate => Ok(-operand),
-                    UnOp::Factorial => Ok(operand.factorial()),
-                }
-            }
-            Self::BinOp(expr) => {
-                let lhs = expr.lhs.evaluate()?;
-                let rhs = expr.rhs.evaluate()?;
-                match expr.bin_op {
-                    BinOp::Add => Ok(lhs + rhs),
-                    BinOp::Sub => Ok(lhs - rhs),
-                    BinOp::Mul => Ok(lhs * rhs),
-                    BinOp::Div => Ok(lhs / rhs),
-                    BinOp::Pow => lhs.pow(rhs),
-                }
-            }
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct ExprUnOp {
-    un_op: UnOp,
-    operand: Box<Expr>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum UnOp {
-    Negate,
-    Factorial,
-}
-
-#[derive(Clone, Debug)]
-pub struct ExprBinOp {
-    bin_op: BinOp,
-    lhs: Box<Expr>,
-    rhs: Box<Expr>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum BinOp {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Pow,
-}
-
-impl BinOp {
-    fn precedence(self) -> Precedence {
-        match self {
-            Self::Add | Self::Sub => Precedence::Term,
-            Self::Mul | Self::Div | Self::Pow => Precedence::Factor,
-        }
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Precedence {
-    Any,
-    Term,
-    Factor,
 }
 
 pub fn parse(s: &str) -> anyhow::Result<Expr> {

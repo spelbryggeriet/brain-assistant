@@ -1,3 +1,4 @@
+mod expr;
 mod number;
 mod parser;
 
@@ -38,15 +39,8 @@ fn run() -> anyhow::Result<()> {
             }
         };
 
-        let eval = match expr.evaluate() {
-            Ok(eval) => eval,
-            Err(err) => {
-                report_user_error(err);
-                continue;
-            }
-        };
-
-        println!("{}", eval.to_string().blue());
+        let reduced = expr.reduce();
+        println!("{}", reduced.to_string().blue());
     }
 }
 
