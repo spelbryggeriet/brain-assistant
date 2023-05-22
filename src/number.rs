@@ -7,99 +7,78 @@ use anyhow::ensure;
 use num_bigint::{BigInt, BigUint, Sign};
 use num_traits::{One, Signed, Zero};
 
-#[derive(Clone, Debug)]
-pub enum Value {
-    Ratio(Ratio),
-    Undefined,
-}
-
-impl Value {
+impl Literal {
     pub fn pow(self, rhs: Self) -> anyhow::Result<Self> {
         match (self, rhs) {
-            (Self::Ratio(lhs), Self::Ratio(rhs)) => lhs.pow(rhs),
+            (Self::Number(lhs), Self::Number(rhs)) => lhs.pow(rhs),
             _ => Ok(Self::Undefined),
         }
     }
 
     pub fn factorial(self) -> Self {
         match self {
-            Self::Ratio(operand) => operand.factorial(),
+            Self::Number(operand) => operand.factorial(),
             _ => Self::Undefined,
         }
     }
 }
 
-impl Neg for Value {
+impl Neg for Literal {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
         match self {
-            Self::Ratio(operand) => Self::Ratio(-operand),
+            Self::Number(operand) => Self::Number(-operand),
             _ => Self::Undefined,
         }
     }
 }
 
-impl Add for Value {
+impl Add for Literal {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
-            (Self::Ratio(lhs), Self::Ratio(rhs)) => Self::Ratio(lhs + rhs),
+            (Self::Number(lhs), Self::Number(rhs)) => Self::Number(lhs + rhs),
             _ => Self::Undefined,
         }
     }
 }
 
-impl Sub for Value {
+impl Sub for Literal {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
-            (Self::Ratio(lhs), Self::Ratio(rhs)) => Self::Ratio(lhs - rhs),
+            (Self::Number(lhs), Self::Number(rhs)) => Self::Number(lhs - rhs),
             _ => Self::Undefined,
         }
     }
 }
 
-impl Mul for Value {
+impl Mul for Literal {
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
-            (Self::Ratio(lhs), Self::Ratio(rhs)) => Self::Ratio(lhs * rhs),
+            (Self::Number(lhs), Self::Number(rhs)) => Self::Number(lhs * rhs),
             _ => Self::Undefined,
         }
     }
 }
 
-impl Div for Value {
+impl Div for Literal {
     type Output = Self;
 
     fn div(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
-            (Self::Ratio(lhs), Self::Ratio(rhs)) => lhs / rhs,
+            (Self::Number(lhs), Self::Number(rhs)) => lhs / rhs,
             _ => Self::Undefined,
         }
     }
 }
 
-impl From<BigInt> for Value {
-    fn from(value: BigInt) -> Self {
-        Self::Ratio(Ratio::from(value))
-    }
-}
-
-impl Display for Value {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            Self::Ratio(r) => r.fmt(f),
-            Self::Undefined => write!(f, "undefined"),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Ratio {
     numerator: BigInt,
     denominator: BigInt,
@@ -110,7 +89,7 @@ impl Ratio {
         (self.numerator.sign() == Sign::Minus) != (self.denominator.sign() == Sign::Minus)
     }
 
-    fn pow(self, rhs: Self) -> anyhow::Result<Value> {
+    fn pow(self, rhs: Self) -> anyhow::Result<Literal> {
         let (mut numerator, mut denominator) = if rhs.numerator == BigInt::zero() {
             (BigInt::one(), BigInt::one())
         } else if rhs.numerator.magnitude() == &BigUint::one() {
@@ -142,15 +121,15 @@ impl Ratio {
                 (numerator.nth_root(exponent), denominator.nth_root(exponent));
         }
 
-        Ok(Value::Ratio(Ratio {
+        Ok(Literal::Number(Ratio {
             numerator,
             denominator,
         }))
     }
 
-    fn factorial(mut self) -> Value {
+    fn factorial(mut self) -> Literal {
         if self.is_negative() {
-            return Value::Undefined;
+            return Literal::Undefined;
         }
 
         if self.numerator.is_negative() {
@@ -159,16 +138,16 @@ impl Ratio {
 
         if self.denominator != BigInt::one() {
             // TODO: implement gamma function.
-            return Value::Undefined;
+            return Literal::Undefined;
         }
 
         if self.numerator == BigInt::zero() {
-            return Value::from(BigInt::one());
+            return Literal::from(BigInt::one());
         }
 
         let two = BigInt::from(2_u32);
         if self.numerator <= two {
-            return Value::from(self.numerator);
+            return Literal::from(self.numerator);
         }
 
         let mut res = BigInt::one();
@@ -178,7 +157,7 @@ impl Ratio {
         }
         res *= self.numerator;
 
-        Value::from(res)
+        Literal::from(res)
     }
 }
 
@@ -243,13 +222,13 @@ impl Mul for Ratio {
 }
 
 impl Div for Ratio {
-    type Output = Value;
+    type Output = Literal;
 
     fn div(self, rhs: Self) -> Self::Output {
         if rhs.numerator == BigInt::zero() {
-            Value::Undefined
+            Literal::Undefined
         } else {
-            Value::Ratio(Self {
+            Literal::Number(Self {
                 numerator: self.numerator * rhs.denominator,
                 denominator: self.denominator * rhs.numerator,
             })

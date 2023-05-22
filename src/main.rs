@@ -1,15 +1,18 @@
 mod expr;
-mod number;
 mod parser;
+mod reduce;
 
 use std::io::{stdin, stdout, Write};
 
 use anyhow::Context;
 use colored::Colorize;
+use once_cell::sync::Lazy;
 
 use parser::parse;
 
 fn main() {
+    Lazy::force(&reduce::RULES);
+
     match run() {
         Ok(()) => (),
         Err(err) => report_fatal_error(err),
@@ -39,7 +42,14 @@ fn run() -> anyhow::Result<()> {
             }
         };
 
-        let reduced = expr.reduce();
+        let reduced = match expr.reduce() {
+            Ok(expr) => expr,
+            Err(err) => {
+                report_user_error(err);
+                continue;
+            }
+        };
+
         println!("{}", reduced.to_string().blue());
     }
 }

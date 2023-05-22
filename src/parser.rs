@@ -5,7 +5,7 @@ use colored::Colorize;
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::digit1,
+    character::complete::{alpha1, digit1},
     combinator::{map, map_res, opt},
     error::{ErrorKind, FromExternalError, ParseError},
     sequence::{delimited, pair},
@@ -13,10 +13,7 @@ use nom::{
 };
 use num_bigint::{BigInt, ParseBigIntError};
 
-use crate::{
-    expr::{BinOp, Expr, ExprBinOp, ExprUnOp, Precedence, UnOp},
-    number::Value,
-};
+use crate::expr::{BinOp, Expr, ExprBinOp, ExprUnOp, Literal, Precedence, UnOp};
 
 pub struct ExprError(anyhow::Error);
 
@@ -83,9 +80,9 @@ fn expr_helper(
             .1
             .map_or(Precedence::Any, |bin_op| bin_op.precedence());
         if next_precedence > bin_op.precedence()
-            || next_precedence == bin_op.precedence() && bin_op == BinOp::Pow
+            || next_precedence == bin_op.precedence() && bin_op.is_right_associative()
         {
-            (s, rhs) = expr_helper(s, rhs, next_precedence)?;
+            (s, rhs) = expr_helper(s, rhs, bin_op.precedence())?;
         }
 
         lhs = Expr::BinOp(ExprBinOp {
@@ -104,7 +101,7 @@ fn parse_unary(s: &str) -> IResult<&str, Expr, ExprError> {
     let (s, mut expr) = if peek(tag("("))(s)? {
         delimited(tag("("), parse_expr, tag(")"))(s)?
     } else {
-        map(parse_number, Expr::Literal)(s)?
+        map(parse_literal, Expr::Literal)(s)?
     };
 
     let (s, postfix_op) = opt(parse_postfix_un_op)(s)?;
@@ -126,8 +123,11 @@ fn parse_unary(s: &str) -> IResult<&str, Expr, ExprError> {
     Ok((s, expr))
 }
 
-fn parse_number(s: &str) -> IResult<&str, Value, ExprError> {
-    map(map_res(digit1, BigInt::from_str), Value::from)(s)
+fn parse_literal(s: &str) -> IResult<&str, Literal, ExprError> {
+    alt((
+        map(map_res(digit1, BigInt::from_str), Literal::from),
+        map(alpha1, Literal::from),
+    ))(s)
 }
 
 fn parse_prefix_un_op(s: &str) -> IResult<&str, UnOp, ExprError> {

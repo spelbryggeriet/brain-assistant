@@ -1,0 +1,52 @@
+#a * #b               = #product(a, b)
+#a + #b               = #sum(a, b)
+#a - #b               = #difference(a, b)
+
+0 ^ 0                 = undefined 
+#a ^ 0                = 1 
+#a ^ 1                = #a
+0 ^ #a                = 0
+1 ^ #a                = 1
+#a ^ #b               = #pow(a, b)
+
+#a / 0                = undefined 
+#a / (#b/#c)          = (#a*#c) / #b
+(#a/#b) / #c          = #a / (#b*#c)
+(#a/#b) / (#c/#d)     = (#a*#d) / (#b*#c)
+#a * (#b/#c)          = (#a*#b) / #c
+(#a/#b) * #c          = (#a*#c) / #b
+(#a/#b) * (#c/#d)     = (#a*#c) / (#b*#d)
+#a + #b/#c            = (#a*#c+#b) / #c
+#a/#b + #c            = (#a+#b*#c) / #b
+#a/#b + #c/#d         = (#a*#d+#b*#c) / (#b*#d)
+#a - #b/#c            = (#a*#c-#b) / #c
+#a/#b - #c            = (#a-#b*#c) / #b
+#a/#b - #c/#d         = (#a*#d-#b*#c) / (#b*#d)
+
+#a * undefined        = undefined
+#a / undefined        = undefined
+#a + undefined        = undefined
+#a - undefined        = undefined
+#a ^ undefined        = undefined
+undefined * #a        = undefined
+undefined / #a        = undefined
+undefined + #a        = undefined
+undefined - #a        = undefined
+undefined ^ #a        = undefined
+
+(#a/#b) * undefined   = undefined
+(#a/#b) / undefined   = undefined
+(#a/#b) + undefined   = undefined
+(#a/#b) - undefined   = undefined
+(#a/#b) ^ undefined   = undefined
+undefined * (#a/#b)   = undefined
+undefined / (#a/#b)   = undefined
+undefined + (#a/#b)   = undefined
+undefined - (#a/#b)   = undefined
+undefined ^ (#a/#b)   = undefined
+
+undefined * undefined = undefined
+undefined / undefined = undefined
+undefined + undefined = undefined
+undefined - undefined = undefined
+undefined ^ undefined = undefined

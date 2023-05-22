@@ -1,39 +1,39 @@
 use std::fmt::{self, Display, Formatter};
 
-use crate::number::Value;
+use num_bigint::BigInt;
 
-#[derive(Clone, Debug)]
+use crate::reduce;
+
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Expr {
-    Literal(Value),
+    Literal(Literal),
     UnOp(ExprUnOp),
     BinOp(ExprBinOp),
 }
 
 impl Expr {
-    pub fn reduce(self) -> Self {
-        match self {
-            Self::UnOp(expr) => {
-                let operand = expr.operand.reduce();
-                match expr.un_op {
-                    _ => Expr::UnOp(ExprUnOp {
-                        operand: Box::new(operand),
-                        ..expr
-                    }),
-                }
-            }
-            Self::BinOp(expr) => {
-                let lhs = expr.lhs.reduce();
-                let rhs = expr.rhs.reduce();
-                match expr.bin_op {
-                    _ => Expr::BinOp(ExprBinOp {
-                        lhs: Box::new(lhs),
-                        rhs: Box::new(rhs),
-                        ..expr
-                    }),
-                }
-            }
+    pub fn reduce(mut self) -> anyhow::Result<Self> {
+        self = match self {
+            Expr::UnOp(expr) => Expr::UnOp(ExprUnOp {
+                un_op: expr.un_op,
+                operand: Box::new(expr.operand.reduce()?),
+            }),
+            Expr::BinOp(expr) => Expr::BinOp(ExprBinOp {
+                bin_op: expr.bin_op,
+                lhs: Box::new(expr.lhs.reduce()?),
+                rhs: Box::new(expr.rhs.reduce()?),
+            }),
             expr => expr,
+        };
+
+        for rule in reduce::RULES.iter() {
+            self = match rule(self) {
+                Ok(expr) => return expr?.reduce(),
+                Err(expr) => expr,
+            };
         }
+
+        Ok(self)
     }
 }
 
@@ -64,16 +64,26 @@ impl Display for Expr {
                 let mut rhs_prefix = "";
                 let mut rhs_suffix = "";
 
-                if matches!(&*expr.lhs, Expr::BinOp(sub_expr) if sub_expr.bin_op.precedence() < expr.bin_op.precedence())
-                {
-                    lhs_prefix = "(";
-                    lhs_suffix = ")";
+                match &*expr.lhs {
+                    Expr::BinOp(sub_expr)
+                        if sub_expr.bin_op.precedence() < expr.bin_op.precedence() =>
+                    {
+                        lhs_prefix = "(";
+                        lhs_suffix = ")";
+                    }
+                    _ => (),
                 }
 
-                if matches!(&*expr.rhs, Expr::BinOp(sub_expr) if sub_expr.bin_op.precedence() < expr.bin_op.precedence())
-                {
-                    rhs_prefix = "(";
-                    rhs_suffix = ")";
+                match &*expr.rhs {
+                    Expr::BinOp(sub_expr)
+                        if sub_expr.bin_op.precedence() < expr.bin_op.precedence()
+                            || sub_expr.bin_op.precedence() == expr.bin_op.precedence()
+                                && !expr.bin_op.is_associative() =>
+                    {
+                        rhs_prefix = "(";
+                        rhs_suffix = ")";
+                    }
+                    _ => (),
                 }
 
                 write!(
@@ -88,7 +98,39 @@ impl Display for Expr {
     }
 }
 
-#[derive(Clone, Debug)]
+pub type Variable = String;
+pub type Number = BigInt;
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Literal {
+    Variable(Variable),
+    Number(Number),
+    Undefined,
+}
+
+impl From<&str> for Literal {
+    fn from(value: &str) -> Self {
+        Self::Variable(value.to_owned())
+    }
+}
+
+impl From<BigInt> for Literal {
+    fn from(value: BigInt) -> Self {
+        Self::Number(value)
+    }
+}
+
+impl Display for Literal {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Self::Variable(v) => v.fmt(f),
+            Self::Number(r) => r.fmt(f),
+            Self::Undefined => write!(f, "undefined"),
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ExprUnOp {
     pub un_op: UnOp,
     pub operand: Box<Expr>,
@@ -118,7 +160,7 @@ impl Display for UnOp {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ExprBinOp {
     pub bin_op: BinOp,
     pub lhs: Box<Expr>,
@@ -138,7 +180,22 @@ impl BinOp {
     pub fn precedence(self) -> Precedence {
         match self {
             Self::Add | Self::Sub => Precedence::Term,
-            Self::Mul | Self::Div | Self::Pow => Precedence::Factor,
+            Self::Mul | Self::Div => Precedence::Factor,
+            Self::Pow => Precedence::Exponent,
+        }
+    }
+
+    pub fn is_associative(self) -> bool {
+        match self {
+            Self::Add | Self::Mul => true,
+            Self::Sub | Self::Div | Self::Pow => false,
+        }
+    }
+
+    pub fn is_right_associative(self) -> bool {
+        match self {
+            Self::Pow => true,
+            Self::Add | Self::Mul | Self::Sub | Self::Div => false,
         }
     }
 }
@@ -160,6 +217,7 @@ pub enum Precedence {
     Any,
     Term,
     Factor,
+    Exponent,
     Prefix,
     Postfix,
 }
