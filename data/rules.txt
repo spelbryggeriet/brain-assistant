@@ -1,12 +1,12 @@
+(#a/#b)!              = undefined
+#a!                   = #factorial(a)
+
+-#a                   = #negate(a)
 #a * #b               = #product(a, b)
 #a + #b               = #sum(a, b)
 #a - #b               = #difference(a, b)
 
 0 ^ 0                 = undefined 
-#a ^ 0                = 1 
-#a ^ 1                = #a
-0 ^ #a                = 0
-1 ^ #a                = 1
 #a ^ #b               = #pow(a, b)
 
 #a / 0                = undefined 

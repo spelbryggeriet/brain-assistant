@@ -1,7 +1,11 @@
-use std::fmt::{self, Display, Formatter};
+use std::{
+    cmp::Ordering,
+    fmt::{self, Display, Formatter},
+};
 
 use anyhow::ensure;
 use lazy_regex::{regex, Captures};
+use num_traits::One;
 use once_cell::sync::Lazy;
 use uuid::Uuid;
 
@@ -179,6 +183,29 @@ fn apply_rule(
                             let b = b.iter_u32_digits().next().unwrap_or(0);
 
                             Expr::Literal(Literal::Number(get_const(a, tmpl_consts).pow(b)))
+                        }
+                        ("negate", [a]) => {
+                            Expr::Literal(Literal::Number(-get_const(a, tmpl_consts)))
+                        }
+                        ("factorial", [a]) => {
+                            let a = get_const(a, tmpl_consts);
+
+                            let two = Number::from(2);
+                            let n = match a.cmp(&two) {
+                                Ordering::Less => Number::one(),
+                                Ordering::Equal => a.clone(),
+                                Ordering::Greater => {
+                                    let mut a = a.clone();
+                                    let mut n = Number::one();
+                                    while a > two {
+                                        n *= &a;
+                                        a -= Number::one();
+                                    }
+                                    n * a
+                                }
+                            };
+
+                            Expr::Literal(Literal::Number(n))
                         }
                         (const_expr, args) => panic!(
                             "unknown constant expression '{const_expr}' with {} argument{}",
