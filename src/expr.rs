@@ -4,6 +4,58 @@ use num_bigint::BigInt;
 
 use crate::reduce;
 
+#[derive(Debug)]
+pub struct TmplExpr {
+    pub expr: Expr,
+    pub cond: Option<CmpExpr>,
+}
+
+impl Display for TmplExpr {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{}", self.expr)?;
+        if let Some(cond) = &self.cond {
+            write!(f, " if {cond}")?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct CmpExpr {
+    pub cmp_op: CmpOp,
+    pub lhs: Expr,
+    pub rhs: Expr,
+}
+
+impl Display for CmpExpr {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{} {} {}", self.lhs, self.cmp_op, self.rhs)
+    }
+}
+
+#[derive(Debug)]
+pub enum CmpOp {
+    Lt,
+    Lte,
+    Eq,
+    Neq,
+    Gt,
+    Gte,
+}
+
+impl Display for CmpOp {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Self::Lt => write!(f, "<"),
+            Self::Lte => write!(f, "<="),
+            Self::Eq => write!(f, "=="),
+            Self::Neq => write!(f, "!="),
+            Self::Gt => write!(f, ">"),
+            Self::Gte => write!(f, ">="),
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Expr {
     Literal(Literal),
@@ -27,8 +79,10 @@ impl Expr {
         };
 
         for rule in reduce::RULES.iter() {
-            self = match rule(self) {
-                Ok(expr) => return expr?.reduce(),
+            self = match rule(self)? {
+                Ok(expr) => {
+                    return expr.reduce();
+                }
                 Err(expr) => expr,
             };
         }

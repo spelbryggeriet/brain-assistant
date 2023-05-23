@@ -1,5 +1,5 @@
 mod expr;
-mod parser;
+mod parse;
 mod reduce;
 
 use std::io::{stdin, stdout, Write};
@@ -7,8 +7,6 @@ use std::io::{stdin, stdout, Write};
 use anyhow::Context;
 use colored::Colorize;
 use once_cell::sync::Lazy;
-
-use parser::parse;
 
 fn main() {
     Lazy::force(&reduce::RULES);
@@ -34,7 +32,7 @@ fn run() -> anyhow::Result<()> {
         }
         let input: String = input.chars().filter(|c| !c.is_whitespace()).collect();
 
-        let expr = match parse(&input) {
+        let expr = match parse::expr(&input) {
             Ok(expr) => expr,
             Err(err) => {
                 report_user_error(err);

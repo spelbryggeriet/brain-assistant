@@ -10,20 +10,17 @@ use once_cell::sync::Lazy;
 use uuid::Uuid;
 
 use crate::{
-    expr::{Expr, ExprBinOp, ExprUnOp, Literal, Number, Variable},
-    parser,
+    expr::{CmpExpr, CmpOp, Expr, ExprBinOp, ExprUnOp, Literal, Number, Variable},
+    parse,
 };
 
-type RuleFn = dyn Fn(Expr) -> Result<anyhow::Result<Expr>, Expr> + Send + Sync;
+type RuleFn = dyn Fn(Expr) -> anyhow::Result<Result<Expr, Expr>> + Send + Sync;
 type RuleConst = (Variable, Option<(Variable, Box<[Variable]>)>);
 
 pub static RULES: Lazy<Box<[Box<RuleFn>]>> = Lazy::new(parse_rules);
 
 fn parse_rules() -> Box<[Box<RuleFn>]> {
-    let src: String = include_str!("../data/rules.txt")
-        .chars()
-        .filter(|c| *c == '\n' || !c.is_whitespace())
-        .collect();
+    let src = include_str!("../data/rules.txt");
 
     let lines = src.lines().filter(|l| !l.trim().is_empty());
     let mut rules = Vec::with_capacity(lines.clone().count());
@@ -47,7 +44,7 @@ fn parse_rules() -> Box<[Box<RuleFn>]> {
             .map(|caps| (caps.get(2).unwrap().as_str().to_owned(), None))
             .collect();
 
-        let tmpl = parser::parse(&expanded_tmpl_src).unwrap();
+        let tmpl_expr = parse::template_expr(&expanded_tmpl_src).unwrap();
 
         let re = regex!(r"#([a-z]+)(?:\((?: *([a-z])(?: *, *([a-z]) *)*)?\))?");
         let mut rule_consts = Vec::<RuleConst>::new();
@@ -88,20 +85,26 @@ fn parse_rules() -> Box<[Box<RuleFn>]> {
         expanded_rule_src += &rule_src[prev_end..];
         let rule_consts = rule_consts.into_boxed_slice();
 
-        let rule_expr = parser::parse(&expanded_rule_src).unwrap();
+        let rule_expr = parse::expr(&expanded_rule_src).unwrap();
 
         let rule: Box<RuleFn> = Box::new(move |expr| {
             let mut tmpl_consts = tmpl_consts.clone();
             let mut tmpl_vars = tmpl_vars.clone();
-            if match_template(&expr, &tmpl, &mut tmpl_consts, &mut tmpl_vars) {
-                Ok(apply_rule(
+            if match_template(
+                &expr,
+                &tmpl_expr.expr,
+                tmpl_expr.cond.as_ref(),
+                &mut tmpl_consts,
+                &mut tmpl_vars,
+            )? {
+                Ok(Ok(apply_rule(
                     &rule_expr,
                     &rule_consts,
                     &tmpl_consts,
                     &tmpl_vars,
-                ))
+                )?))
             } else {
-                Err(expr)
+                Ok(Err(expr))
             }
         });
         rules.push(rule);
@@ -113,10 +116,11 @@ fn parse_rules() -> Box<[Box<RuleFn>]> {
 fn match_template(
     expr: &Expr,
     tmpl_expr: &Expr,
+    tmpl_cond: Option<&CmpExpr>,
     tmpl_consts: &mut [(Variable, Option<Number>)],
     tmpl_vars: &mut [(Variable, Option<Expr>)],
-) -> bool {
-    match (expr, tmpl_expr) {
+) -> anyhow::Result<bool> {
+    let did_match = match (expr, tmpl_expr) {
         (Expr::Literal(Literal::Undefined), Expr::Literal(Literal::Variable(tmpl_var))) => {
             tmpl_var == "undefined"
         }
@@ -144,14 +148,45 @@ fn match_template(
             }
         }
         (Expr::UnOp(expr), Expr::UnOp(tmpl_expr)) if expr.un_op == tmpl_expr.un_op => {
-            match_template(&expr.operand, &tmpl_expr.operand, tmpl_consts, tmpl_vars)
+            match_template(
+                &expr.operand,
+                &tmpl_expr.operand,
+                None,
+                tmpl_consts,
+                tmpl_vars,
+            )?
         }
         (Expr::BinOp(expr), Expr::BinOp(tmpl_expr)) if expr.bin_op == tmpl_expr.bin_op => {
-            match_template(&expr.lhs, &tmpl_expr.lhs, tmpl_consts, tmpl_vars)
-                && match_template(&expr.rhs, &tmpl_expr.rhs, tmpl_consts, tmpl_vars)
+            match_template(&expr.lhs, &tmpl_expr.lhs, None, tmpl_consts, tmpl_vars)?
+                && match_template(&expr.rhs, &tmpl_expr.rhs, None, tmpl_consts, tmpl_vars)?
         }
         _ => expr == tmpl_expr,
-    }
+    };
+
+    let cond_is_true = if did_match {
+        if let Some(cmp_expr) = tmpl_cond {
+            let lhs = replace_constants(&cmp_expr.lhs, tmpl_consts).reduce()?;
+            let rhs = replace_constants(&cmp_expr.rhs, tmpl_consts).reduce()?;
+            let (Expr::Literal(Literal::Number(lhs)), Expr::Literal(Literal::Number(rhs))) = (&lhs, &rhs) else {
+                panic!("irreducible comparison exprssion: {lhs} {} {rhs}", cmp_expr.cmp_op);
+            };
+
+            match cmp_expr.cmp_op {
+                CmpOp::Lt => lhs < rhs,
+                CmpOp::Lte => lhs <= rhs,
+                CmpOp::Eq => lhs == rhs,
+                CmpOp::Neq => lhs != rhs,
+                CmpOp::Gt => lhs > rhs,
+                CmpOp::Gte => lhs >= rhs,
+            }
+        } else {
+            true
+        }
+    } else {
+        true
+    };
+
+    Ok(did_match && cond_is_true)
 }
 
 fn apply_rule(
@@ -245,10 +280,31 @@ fn get_const<'a>(var: &str, consts: &'a [(Variable, Option<Number>)]) -> &'a Num
     consts
         .iter()
         .find(|(k, _)| k == var)
-        .unwrap()
+        .unwrap_or_else(|| panic!("{var} not defined"))
         .1
         .as_ref()
-        .unwrap()
+        .unwrap_or_else(|| panic!("{var} not set"))
+}
+
+fn replace_constants(expr: &Expr, consts: &[(Variable, Option<Number>)]) -> Expr {
+    match expr {
+        Expr::Literal(Literal::Variable(var)) if var == "undefined" => {
+            Expr::Literal(Literal::Undefined)
+        }
+        Expr::Literal(Literal::Variable(var)) => {
+            Expr::Literal(Literal::Number(get_const(var, consts).clone()))
+        }
+        Expr::UnOp(expr) => Expr::UnOp(ExprUnOp {
+            un_op: expr.un_op,
+            operand: Box::new(replace_constants(&expr.operand, consts)),
+        }),
+        Expr::BinOp(expr) => Expr::BinOp(ExprBinOp {
+            bin_op: expr.bin_op,
+            lhs: Box::new(replace_constants(&expr.lhs, consts)),
+            rhs: Box::new(replace_constants(&expr.rhs, consts)),
+        }),
+        _ => expr.clone(),
+    }
 }
 
 struct UuidFormatter(Uuid);
