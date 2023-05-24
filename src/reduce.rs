@@ -25,7 +25,7 @@ fn parse_rules() -> Box<[Box<RuleFn>]> {
     let lines = src.lines().filter(|l| !l.trim().is_empty());
     let mut rules = Vec::with_capacity(lines.clone().count());
     for line in lines {
-        let (tmpl_src, rule_src) = line.split_once('=').unwrap();
+        let (tmpl_src, rule_src) = line.rsplit_once('=').unwrap();
 
         let re = regex!("#([a-z])");
         let tmpl_consts: Box<[(Variable, Option<Number>)]> = re
@@ -252,7 +252,10 @@ fn apply_rule(
                     Expr::Literal(Literal::Number(get_const(rule_var, tmpl_consts).clone()))
                 }
             } else {
-                let (_, e) = tmpl_vars.iter().find(|(k, _)| k == rule_var).unwrap();
+                let (_, e) = tmpl_vars
+                    .iter()
+                    .find(|(k, _)| k == rule_var)
+                    .unwrap_or_else(|| panic!("{rule_var} not defined"));
                 e.clone().unwrap()
             }
         }
