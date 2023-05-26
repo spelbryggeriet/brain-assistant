@@ -14,7 +14,7 @@ use crate::{
     parse,
 };
 
-type RuleFn = dyn Fn(Expr) -> anyhow::Result<Result<Expr, Expr>> + Send + Sync;
+type RuleFn = dyn Fn(&mut Expr) -> anyhow::Result<bool> + Send + Sync;
 type RuleMacro = (Variable, Variable, Box<[Variable]>);
 
 pub static RULES: Lazy<Box<[Box<RuleFn>]>> = Lazy::new(parse_rules);
@@ -102,15 +102,16 @@ fn parse_rules() -> Box<[Box<RuleFn>]> {
                 &mut tmpl_vars,
                 &mut tmpl_subexprs,
             )? {
-                Ok(Ok(apply_rule(
+                *expr = apply_rule(
                     &rule_expr,
                     &rule_consts,
                     &tmpl_consts,
                     &tmpl_vars,
                     &tmpl_subexprs,
-                )?))
+                )?;
+                Ok(true)
             } else {
-                Ok(Err(expr))
+                Ok(false)
             }
         });
         rules.push(rule);
@@ -204,8 +205,11 @@ fn match_template(
 
     let cond_is_true = if did_match {
         if let Some(cmp_expr) = tmpl_cond {
-            let lhs = replace_constants(&cmp_expr.lhs, tmpl_consts).reduce()?;
-            let rhs = replace_constants(&cmp_expr.rhs, tmpl_consts).reduce()?;
+            let mut lhs = replace_constants(&cmp_expr.lhs, tmpl_consts);
+            let mut rhs = replace_constants(&cmp_expr.rhs, tmpl_consts);
+            lhs.reduce()?;
+            rhs.reduce()?;
+
             let (Expr::Literal(Literal::Number(lhs)), Expr::Literal(Literal::Number(rhs))) = (&lhs, &rhs) else {
                 panic!("irreducible comparison exprssion: {lhs} {} {rhs}", cmp_expr.cmp_op);
             };

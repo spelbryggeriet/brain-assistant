@@ -64,30 +64,81 @@ pub enum Expr {
 }
 
 impl Expr {
-    pub fn reduce(mut self) -> anyhow::Result<Self> {
-        self = match self {
-            Expr::UnOp(expr) => Expr::UnOp(ExprUnOp {
-                un_op: expr.un_op,
-                operand: Box::new(expr.operand.reduce()?),
-            }),
-            Expr::BinOp(expr) => Expr::BinOp(ExprBinOp {
-                bin_op: expr.bin_op,
-                lhs: Box::new(expr.lhs.reduce()?),
-                rhs: Box::new(expr.rhs.reduce()?),
-            }),
-            expr => expr,
-        };
+    pub fn reduce(&mut self) -> anyhow::Result<()> {
+        self.reduce_helper(None, false)?;
+        Ok(())
+    }
 
-        for rule in reduce::RULES.iter() {
-            self = match rule(self)? {
-                Ok(expr) => {
-                    return expr.reduce();
+    pub fn reduce_with_steps(&mut self) -> anyhow::Result<Vec<Self>> {
+        let mut reductions = vec![self.clone()];
+        self.reduce_helper(Some(&mut reductions), false)?;
+        Ok(reductions)
+    }
+
+    fn reduce_helper(
+        &mut self,
+        mut reductions: Option<&mut Vec<Self>>,
+        reduce_once: bool,
+    ) -> anyhow::Result<bool> {
+        macro_rules! iterate_inner {
+            ($expr:ident, $op_type:ident, $op_field:ident) => {
+                if $expr.$op_field.reduce_helper(None, true)? {
+                    if reduce_once {
+                        return Ok(true);
+                    }
+
+                    loop {
+                        if let Some(r) = &mut reductions {
+                            r.push(self.clone());
+                        }
+
+                        let Expr::$op_type(expr) = self else {
+                            panic!(concat!("expected Expr::", stringify!($op_type)));
+                        };
+
+                        if !expr.$op_field.reduce_helper(None, true)? {
+                            break;
+                        }
+                    }
                 }
-                Err(expr) => expr,
             };
         }
 
-        Ok(self)
+        'outer: loop {
+            match self {
+                Expr::UnOp(expr) => {
+                    iterate_inner!(expr, UnOp, operand);
+                }
+                Expr::BinOp(expr) => {
+                    iterate_inner!(expr, BinOp, lhs);
+
+                    let Expr::BinOp(expr) = self else {
+                        panic!("expected Expr::BinOp");
+                    };
+
+                    iterate_inner!(expr, BinOp, rhs);
+                }
+                _ => (),
+            }
+
+            for rule in reduce::RULES.iter() {
+                if rule(self)? {
+                    if let Some(r) = &mut reductions {
+                        r.push(self.clone());
+                    }
+
+                    if reduce_once {
+                        return Ok(true);
+                    }
+
+                    continue 'outer;
+                }
+            }
+
+            break 'outer;
+        }
+
+        Ok(false)
     }
 }
 
@@ -131,8 +182,7 @@ impl Display for Expr {
                 match &*expr.rhs {
                     Expr::BinOp(sub_expr)
                         if sub_expr.bin_op.precedence() < expr.bin_op.precedence()
-                            || sub_expr.bin_op.precedence() == expr.bin_op.precedence()
-                                && !expr.bin_op.is_associative() =>
+                            || sub_expr.bin_op.precedence() == expr.bin_op.precedence() =>
                     {
                         rhs_prefix = "(";
                         rhs_suffix = ")";

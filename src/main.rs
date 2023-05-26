@@ -32,7 +32,7 @@ fn run() -> anyhow::Result<()> {
         }
         let input: String = input.chars().filter(|c| !c.is_whitespace()).collect();
 
-        let expr = match parse::expr(&input) {
+        let mut expr = match parse::expr(&input) {
             Ok(expr) => expr,
             Err(err) => {
                 report_user_error(err);
@@ -40,15 +40,17 @@ fn run() -> anyhow::Result<()> {
             }
         };
 
-        let reduced = match expr.reduce() {
-            Ok(expr) => expr,
+        let steps = match expr.reduce_with_steps() {
+            Ok(steps) => steps,
             Err(err) => {
                 report_user_error(err);
                 continue;
             }
         };
 
-        println!("{}", reduced.to_string().blue());
+        for step in steps {
+            println!("{}", step.to_string().blue());
+        }
     }
 }
 
