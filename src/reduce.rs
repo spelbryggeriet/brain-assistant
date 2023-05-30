@@ -10,7 +10,7 @@ use once_cell::sync::Lazy;
 use uuid::Uuid;
 
 use crate::{
-    expr::{CmpExpr, CmpOp, Expr, ExprBinOp, ExprUnOp, Literal, Number, Variable},
+    expr::{CmpExpr, CmpOp, Expr, ExprBinOp, ExprUnOp, Literal, Number, TmplExpr, Variable},
     parse,
 };
 
@@ -18,10 +18,41 @@ type RuleFn = dyn Fn(&mut Expr) -> anyhow::Result<bool> + Send + Sync;
 
 pub static RULES: Lazy<Box<[Box<RuleFn>]>> = Lazy::new(parse_rules);
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
+struct TmplPrimitive<T> {
+    data: Option<T>,
+    optional: Option<(Option<Expr>, Option<Expr>)>,
+}
+
+impl<T> TmplPrimitive<T> {
+    fn new(optional: Option<(Option<Expr>, Option<Expr>)>) -> Self {
+        Self {
+            data: None,
+            optional,
+        }
+    }
+
+    fn assign(&mut self, data: &T) -> bool
+    where
+        T: Clone + Eq,
+    {
+        if let Some(self_data) = &self.data {
+            self_data == data
+        } else {
+            self.data = Some(data.clone());
+            true
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 struct FixedMap<V>(Box<[(String, V)]>);
 
 impl<V> FixedMap<V> {
+    fn iter_mut(&mut self) -> impl Iterator<Item = (&str, &mut V)> {
+        self.0.iter_mut().map(|(k, v)| (&**k, v))
+    }
+
     fn get(&self, var: &str) -> Option<&V> {
         self.0.iter().find(|(k, _)| k == var).map(|(_, v)| v)
     }
@@ -37,29 +68,77 @@ impl<V> From<Vec<(String, V)>> for FixedMap<V> {
     }
 }
 
-impl<V> FromIterator<(String, V)> for FixedMap<V> {
-    fn from_iter<T: IntoIterator<Item = (String, V)>>(iter: T) -> Self {
-        Self(Box::from_iter(iter))
-    }
-}
-
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct TmplData {
-    consts: FixedMap<Option<Number>>,
-    vars: FixedMap<Option<Variable>>,
-    sub_exprs: FixedMap<Option<Expr>>,
+    consts: FixedMap<TmplPrimitive<Number>>,
+    sub_exprs: FixedMap<TmplPrimitive<Expr>>,
+    vars: FixedMap<TmplPrimitive<Variable>>,
 }
 
 impl TmplData {
     fn new(
-        consts: FixedMap<Option<Number>>,
-        vars: FixedMap<Option<Variable>>,
-        sub_exprs: FixedMap<Option<Expr>>,
+        consts: FixedMap<TmplPrimitive<Number>>,
+        sub_exprs: FixedMap<TmplPrimitive<Expr>>,
+        vars: FixedMap<TmplPrimitive<Variable>>,
     ) -> Self {
         Self {
             consts,
-            vars,
             sub_exprs,
+            vars,
+        }
+    }
+
+    fn generate_permutations(
+        self,
+        tmpl_expr: TmplExpr,
+        rule_expr: Expr,
+    ) -> Vec<(Self, TmplExpr, Expr)> {
+        let mut permutations = Vec::new();
+        self.generate_permutations_helper(tmpl_expr, rule_expr, &mut permutations);
+        permutations
+    }
+
+    fn generate_permutations_helper(
+        mut self,
+        mut tmpl_expr: TmplExpr,
+        mut rule_expr: Expr,
+        permutations: &mut Vec<(Self, TmplExpr, Expr)>,
+    ) {
+        macro_rules! find_optionals {
+            ($map:expr) => {
+                $map.iter_mut().find_map(|(k, c)| {
+                    if let Some(optional) = c.optional.take() {
+                        Some((k.to_owned(), optional))
+                    } else {
+                        None
+                    }
+                })
+            };
+        }
+
+        let optionals = find_optionals!(self.consts)
+            .or_else(|| find_optionals!(self.sub_exprs))
+            .or_else(|| find_optionals!(self.vars));
+
+        if let Some((ident, (tmpl_optional, rule_optional))) = optionals {
+            self.clone().generate_permutations_helper(
+                tmpl_expr.clone(),
+                rule_expr.clone(),
+                permutations,
+            );
+
+            tmpl_expr.expr =
+                replace_identifier(&ident, tmpl_optional.as_ref(), tmpl_expr.expr).unwrap();
+            tmpl_expr.cond = tmpl_expr.cond.map(|mut cond| {
+                cond.lhs = replace_identifier(&ident, tmpl_optional.as_ref(), cond.lhs).unwrap();
+                cond.rhs = replace_identifier(&ident, tmpl_optional.as_ref(), cond.rhs).unwrap();
+                cond
+            });
+            rule_expr = replace_identifier(&ident, rule_optional.as_ref(), rule_expr).unwrap();
+
+            self.generate_permutations_helper(tmpl_expr, rule_expr, permutations);
+        } else {
+            permutations.push((self, tmpl_expr, rule_expr));
         }
     }
 
@@ -67,6 +146,7 @@ impl TmplData {
         self.consts
             .get(var)
             .unwrap_or_else(|| panic!("{var} not defined"))
+            .data
             .as_ref()
             .unwrap_or_else(|| panic!("{var} not set"))
     }
@@ -99,39 +179,23 @@ impl TmplData {
         tmpl_cond: Option<&CmpExpr>,
     ) -> anyhow::Result<bool> {
         let did_match = match (expr, tmpl_expr) {
-            (Expr::Literal(Literal::Undefined), Expr::Literal(Literal::Variable(tmpl_ident))) => {
-                tmpl_ident == "undefined"
-            }
             (expr, Expr::Literal(Literal::Variable(tmpl_ident))) => {
-                if let Some(tmpl_num) = self.consts.get_mut(tmpl_ident) {
+                if tmpl_ident == "undefined" {
+                    matches!(expr, Expr::Literal(Literal::Undefined))
+                } else if let Some(tmpl_num) = self.consts.get_mut(tmpl_ident) {
                     if let Expr::Literal(Literal::Number(num)) = expr {
-                        if let Some(tmpl_num) = tmpl_num.as_ref() {
-                            tmpl_num == num
-                        } else {
-                            *tmpl_num = Some(num.clone());
-                            true
-                        }
+                        tmpl_num.assign(num)
                     } else {
                         false
                     }
                 } else if let Some(tmpl_var) = self.vars.get_mut(tmpl_ident) {
                     if let Expr::Literal(Literal::Variable(var)) = expr {
-                        if let Some(tmpl_var) = tmpl_var.as_ref() {
-                            tmpl_var == var
-                        } else {
-                            *tmpl_var = Some(var.clone());
-                            true
-                        }
+                        tmpl_var.assign(var)
                     } else {
                         false
                     }
                 } else if let Some(tmpl_sub_expr) = self.sub_exprs.get_mut(tmpl_ident) {
-                    if let Some(tmpl_sub_expr) = tmpl_sub_expr.as_ref() {
-                        tmpl_sub_expr == expr
-                    } else {
-                        *tmpl_sub_expr = Some(expr.clone());
-                        true
-                    }
+                    tmpl_sub_expr.assign(expr)
                 } else {
                     expr == tmpl_expr
                 }
@@ -154,7 +218,7 @@ impl TmplData {
                 rhs.reduce()?;
 
                 let (Expr::Literal(Literal::Number(lhs)), Expr::Literal(Literal::Number(rhs))) = (&lhs, &rhs) else {
-                panic!("irreducible comparison exprssion: {lhs} {} {rhs}", cmp_expr.cmp_op);
+                panic!("irreducible comparison expression: {lhs} {} {rhs}", cmp_expr.cmp_op);
             };
 
                 match cmp_expr.cmp_op {
@@ -231,13 +295,14 @@ impl TmplData {
                         ),
                     }
                 } else if let Some(tmpl_const) = self.consts.get(rule_var) {
-                    Expr::Literal(Literal::Number(tmpl_const.clone().unwrap()))
+                    Expr::Literal(Literal::Number(tmpl_const.data.clone().unwrap()))
                 } else if let Some(tmpl_var) = self.vars.get(rule_var) {
-                    Expr::Literal(Literal::Variable(tmpl_var.clone().unwrap()))
+                    Expr::Literal(Literal::Variable(tmpl_var.data.clone().unwrap()))
                 } else {
                     self.sub_exprs
                         .get(rule_var)
                         .unwrap_or_else(|| panic!("{rule_var} not defined"))
+                        .data
                         .clone()
                         .unwrap()
                 }
@@ -258,6 +323,29 @@ impl TmplData {
     }
 }
 
+fn replace_identifier(ident: &str, optional: Option<&Expr>, expr: Expr) -> Option<Expr> {
+    match expr {
+        Expr::Literal(Literal::Variable(var)) if var == ident => optional.cloned(),
+        Expr::UnOp(expr_un_op) => Some(Expr::UnOp(ExprUnOp {
+            operand: Box::new(replace_identifier(ident, optional, *expr_un_op.operand)?),
+            ..expr_un_op
+        })),
+        Expr::BinOp(expr_bin_op) => match (
+            replace_identifier(ident, optional, *expr_bin_op.lhs),
+            replace_identifier(ident, optional, *expr_bin_op.rhs),
+        ) {
+            (Some(lhs), Some(rhs)) => Some(Expr::BinOp(ExprBinOp {
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                ..expr_bin_op
+            })),
+            (Some(expr), None) | (None, Some(expr)) => Some(expr),
+            (None, None) => None,
+        },
+        expr => Some(expr),
+    }
+}
+
 fn parse_rules() -> Box<[Box<RuleFn>]> {
     let src = include_str!("../data/rules.txt");
 
@@ -266,86 +354,107 @@ fn parse_rules() -> Box<[Box<RuleFn>]> {
     for line in lines {
         let (tmpl_src, rule_src) = line.rsplit_once('=').unwrap();
 
-        let re = regex!("#([a-z])");
-        let tmpl_consts: FixedMap<Option<Number>> = re
-            .captures_iter(tmpl_src)
-            .map(|caps| (caps.get(1).unwrap().as_str().to_owned(), None))
-            .collect();
+        let mut tmpl_consts = Vec::new();
+        let mut tmpl_sub_exprs = Vec::new();
+        let mut tmpl_vars = Vec::new();
 
-        let re = regex!("@([a-z])");
-        let tmpl_sub_exprs: FixedMap<Option<Expr>> = re
-            .captures_iter(tmpl_src)
-            .map(|caps| (caps.get(1).unwrap().as_str().to_owned(), None))
-            .collect();
+        let re = regex!(r#"(#|@|[a-z]?)([a-z])(\?(?:\{[^~]*~[^}]*\})?|[a-z]?)"#);
+        for caps in re.captures_iter(tmpl_src) {
+            let ident = caps.get(2).unwrap().as_str();
 
-        let re = regex!("([#@a-z]?)([a-z])([a-z]?)");
-        let tmpl_vars: FixedMap<Option<Variable>> = re
-            .captures_iter(tmpl_src)
-            .filter(|caps| caps.get(1).unwrap().is_empty() && caps.get(3).unwrap().is_empty())
-            .map(|caps| (caps.get(2).unwrap().as_str().to_owned(), None))
-            .collect();
+            let optionals = match caps.get(3).unwrap().as_str() {
+                s if s.starts_with('?') => {
+                    if let Some(s) = s.strip_prefix("?{").and_then(|s| s.strip_suffix('}')) {
+                        let (lhs, rhs) = s.split_once('~').unwrap();
+                        let lhs = if lhs.is_empty() {
+                            None
+                        } else {
+                            Some(parse::expr(lhs).unwrap())
+                        };
+                        let rhs = if rhs.is_empty() {
+                            None
+                        } else {
+                            Some(parse::expr(rhs).unwrap())
+                        };
+                        Some((lhs, rhs))
+                    } else {
+                        Some((None, None))
+                    }
+                }
+                "" => None,
+                _ => continue,
+            };
 
-        let re = regex!("(?:#|@)([a-z])");
+            match caps.get(1).unwrap().as_str() {
+                "#" => tmpl_consts.push((ident.to_owned(), TmplPrimitive::new(optionals))),
+                "@" => tmpl_sub_exprs.push((ident.to_owned(), TmplPrimitive::new(optionals))),
+                "" => tmpl_vars.push((ident.to_owned(), TmplPrimitive::new(optionals))),
+                _ => continue,
+            }
+        }
+
+        let tmpl_consts = FixedMap::from(tmpl_consts);
+        let tmpl_sub_exprs = FixedMap::from(tmpl_sub_exprs);
+        let tmpl_vars = FixedMap::from(tmpl_vars);
+
+        let re = regex!(r#"(?:#|@)([a-z])(?:\?(?:\{[^}]+\})?)?"#);
         let expanded_tmpl_src = re.replace_all(tmpl_src, |caps: &Captures| {
             caps.get(1).unwrap().as_str().to_owned()
         });
 
-        let tmpl_expr = parse::template_expr(&expanded_tmpl_src).unwrap();
-
-        let re = regex!(r"@([a-z])|#([a-z]+)(\((?: *([a-z])(?: *, *([a-z]) *)*)?\))?");
-        let mut rule_macros = Vec::<(String, (Variable, Box<[Variable]>))>::new();
+        let re = regex!(r"#([a-z]+) *\((?: *([a-z])(?: *, *([a-z]) *)*)?\)");
+        let mut rule_macros = Vec::<(String, _)>::new();
         let mut expanded_rule_src = String::with_capacity(rule_src.len());
         let mut prev_end = 0;
         for caps in re.captures_iter(rule_src) {
             let m = caps.get(0).unwrap();
-            let expr_name = caps.get(1).or_else(|| caps.get(2)).unwrap().as_str();
+            let expr_name = caps.get(1).unwrap().as_str();
+
+            let mut key = format!("{expr_name}{}", UuidFormatter(Uuid::new_v4()));
+            while rule_macros.iter().any(|(k, _)| k == &key) {
+                key = format!("{expr_name}{}", UuidFormatter(Uuid::new_v4()));
+            }
 
             expanded_rule_src += &rule_src[prev_end..m.range().start];
-            if caps.iter().flatten().count() == 2 {
-                expanded_rule_src += expr_name;
-            } else {
-                let mut key = format!("{expr_name}{}", UuidFormatter(Uuid::new_v4()));
-                while rule_macros.iter().any(|(k, ..)| k == &key) {
-                    key = format!("{expr_name}{}", UuidFormatter(Uuid::new_v4()));
-                }
-
-                expanded_rule_src += &key;
-
-                rule_macros.push((
-                    key,
-                    (
-                        expr_name.to_owned(),
-                        caps.iter()
-                            .flatten()
-                            .skip(3)
-                            .map(|m| m.as_str().to_owned())
-                            .collect(),
-                    ),
-                ));
-            }
-
+            expanded_rule_src += &key;
             prev_end = m.range().end;
+
+            rule_macros.push((
+                key,
+                (
+                    expr_name.to_owned(),
+                    caps.iter()
+                        .flatten()
+                        .skip(2)
+                        .map(|m| m.as_str().to_owned())
+                        .collect(),
+                ),
+            ));
         }
-        expanded_rule_src += &rule_src[prev_end..];
+
         let rule_macros = FixedMap::from(rule_macros);
 
+        expanded_rule_src += &rule_src[prev_end..];
+
+        let tmpl_expr = parse::template_expr(&expanded_tmpl_src).unwrap();
         let rule_expr = parse::expr(&expanded_rule_src).unwrap();
+        let tmpl_data = TmplData::new(tmpl_consts, tmpl_sub_exprs, tmpl_vars);
 
-        let rule: Box<RuleFn> = Box::new(move |expr| {
-            let mut tmpl_data = TmplData::new(
-                tmpl_consts.clone(),
-                tmpl_vars.clone(),
-                tmpl_sub_exprs.clone(),
-            );
-
-            if tmpl_data.match_template(expr, &tmpl_expr.expr, tmpl_expr.cond.as_ref())? {
-                *expr = tmpl_data.apply_rule(&rule_expr, &rule_macros)?;
-                Ok(true)
-            } else {
-                Ok(false)
-            }
-        });
-        rules.push(rule);
+        for (tmpl_data, tmpl_expr, rule_expr) in
+            tmpl_data.generate_permutations(tmpl_expr, rule_expr)
+        {
+            let rule_macros = rule_macros.clone();
+            let rule: Box<RuleFn> = Box::new(move |expr| {
+                let mut tmpl_data = tmpl_data.clone();
+                if tmpl_data.match_template(expr, &tmpl_expr.expr, tmpl_expr.cond.as_ref())? {
+                    *expr = tmpl_data.apply_rule(&rule_expr, &rule_macros)?;
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            });
+            rules.push(rule);
+        }
     }
 
     rules.into_boxed_slice()
@@ -384,7 +493,10 @@ mod tests {
     }
 
     cases! {
-        one_plus_one, 1 + 1     => 2,
-        x2_plus_x3,   x^2 + x^3 => x^3 + x^2,
+        case_1_plus_1,     1 + 1         => 2,
+        case_x2_plus_y3,   x^2 + y^3     => y^3 + x^2,
+        case_2x2_plus_y3,  2*x^2 + y^3   => y^3 + 2*x^2,
+        case_x2_plus_3y3,  x^2 + 3*y^3   => 3*y^3 + x^2,
+        case_2x2_plus_3y3, 2*x^2 + 3*y^3 => 3*y^3 + 2*x^2,
     }
 }

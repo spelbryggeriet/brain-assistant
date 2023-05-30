@@ -4,7 +4,7 @@ use num_bigint::BigInt;
 
 use crate::reduce;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TmplExpr {
     pub expr: Expr,
     pub cond: Option<CmpExpr>,
@@ -20,7 +20,7 @@ impl Display for TmplExpr {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CmpExpr {
     pub cmp_op: CmpOp,
     pub lhs: Expr,
@@ -33,7 +33,7 @@ impl Display for CmpExpr {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum CmpOp {
     Lt,
     Lte,
@@ -158,9 +158,9 @@ impl Display for Expr {
                 }
 
                 if expr.un_op.precedence() == Precedence::Prefix {
-                    write!(f, "{prefix}{}{}{suffix}", expr.un_op, expr.operand)
+                    write!(f, "{}{prefix}{}{suffix}", expr.un_op, expr.operand)
                 } else {
-                    write!(f, "{prefix}{}{}{suffix}", expr.operand, expr.un_op)
+                    write!(f, "{prefix}{}{suffix}{}", expr.operand, expr.un_op)
                 }
             }
             Self::BinOp(expr) => {
@@ -289,13 +289,6 @@ impl BinOp {
         }
     }
 
-    pub fn is_associative(self) -> bool {
-        match self {
-            Self::Add | Self::Mul => true,
-            Self::Sub | Self::Div | Self::Pow => false,
-        }
-    }
-
     pub fn is_right_associative(self) -> bool {
         match self {
             Self::Pow => true,
@@ -324,4 +317,27 @@ pub enum Precedence {
     Exponent,
     Prefix,
     Postfix,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::parse;
+
+    macro_rules! cases {
+        ($($name:ident, $e:literal),* $(,)?) => {
+            $(
+            #[test]
+            fn $name() {
+                let expr = parse::expr($e).unwrap();
+                assert_eq!($e, expr.to_string());
+            }
+            )*
+        };
+    }
+
+    cases! {
+        display_identity_neg_fact_a, "-a!",
+        display_identity_fact_neg_a, "(-a)!",
+        display_identity_a_over_b_fact, "(a/b)!",
+    }
 }

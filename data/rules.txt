@@ -1,82 +1,55 @@
-(#a/#b)!                     = undefined
-#a! if #a < 0                = undefined
-#a!                          = #factorial(a)
+(#a/#b)!                       = undefined
+#a! if #a < 0                  = undefined
+#a!                            = #factorial(a)
 
--#a                          = #negate(a)
-#a * #b                      = #product(a, b)
-#a + #b                      = #sum(a, b)
-#a - #b                      = #difference(a, b)
+-#a                            = #negate(a)
+#a * #b                        = #product(a, b)
+#a + #b                        = #sum(a, b)
+#a - #b                        = #difference(a, b)
 
-0 ^ 0                        = undefined 
-#a ^ #b                      = #pow(a, b)
+0 ^ 0                          = undefined 
+#a ^ #b                        = #pow(a, b)
 
-#a / 0                       = undefined 
-#a / 1                       = #a
-#a / #a                      = 1
-0 / #a                       = 0
-#a / (#b/#c)                 = (#a*#c) / #b
-(#a/#b) / #c                 = #a / (#b*#c)
-(#a/#b) / (#c/#d)            = (#a*#d) / (#b*#c)
-#a * (#b/#c)                 = (#a*#b) / #c
-(#a/#b) * #c                 = (#a*#c) / #b
-(#a/#b) * (#c/#d)            = (#a*#c) / (#b*#d)
-#a + #b/#c                   = (#a*#c+#b) / #c
-#a/#b + #c                   = (#a+#b*#c) / #b
-#a/#b + #c/#d                = (#a*#d+#b*#c) / (#b*#d)
-#a - #b/#c                   = (#a*#c-#b) / #c
-#a/#b - #c                   = (#a-#b*#c) / #b
-#a/#b - #c/#d                = (#a*#d-#b*#c) / (#b*#d)
+#a / 0                         = undefined 
+#a / 1                         = a
+#a / #a                        = 1
+0 / #a                         = 0
+#a / (#b/#c)                   = (a*c) / b
+(#a/#b) / #c                   = a / (b*c)
+(#a/#b) / (#c/#d)              = (a*d) / (b*c)
+#a * (#b/#c)                   = (a*b) / c
+(#a/#b) * #c                   = (a*c) / b
+(#a/#b) * (#c/#d)              = (a*c) / (b*d)
+#a + #b/#c                     = (a*c+b) / c
+#a/#b + #c                     = (a+b*c) / b
+#a/#b + #c/#d                  = (a*d+b*c) / (b*d)
+#a - #b/#c                     = (a*c-b) / c
+#a/#b - #c                     = (a-b*c) / b
+#a/#b - #c/#d                  = (a*d-b*c) / (b*d)
 
-#a * undefined               = undefined
-#a / undefined               = undefined
-#a + undefined               = undefined
-#a - undefined               = undefined
-#a ^ undefined               = undefined
-undefined * #a               = undefined
-undefined / #a               = undefined
-undefined + #a               = undefined
-undefined - #a               = undefined
-undefined ^ #a               = undefined
+undefined!                     = undefined
+-undefined                     = undefined
+@e * undefined                 = undefined
+@e / undefined                 = undefined
+@e + undefined                 = undefined
+@e - undefined                 = undefined
+@e ^ undefined                 = undefined
+undefined * @e                 = undefined
+undefined / @e                 = undefined
+undefined + @e                 = undefined
+undefined - @e                 = undefined
+undefined ^ @e                 = undefined
 
-(#a/#b) * undefined          = undefined
-(#a/#b) / undefined          = undefined
-(#a/#b) + undefined          = undefined
-(#a/#b) - undefined          = undefined
-(#a/#b) ^ undefined          = undefined
-undefined * (#a/#b)          = undefined
-undefined / (#a/#b)          = undefined
-undefined + (#a/#b)          = undefined
-undefined - (#a/#b)          = undefined
-undefined ^ (#a/#b)          = undefined
+@e / 0                         = undefined
+0 / @e                         = 0
+@e ^ 1                         = e
+1 * @e                         = e
 
-undefined * undefined        = undefined
-undefined / undefined        = undefined
-undefined + undefined        = undefined
-undefined - undefined        = undefined
-undefined ^ undefined        = undefined
+@e + (@f + @g)                 = e + f + g
 
-@e/0                         = undefined
-0/@e                         = 0
-@e^1                         = @e
-1*@e                         = @e
+@e*#a                          = a*e
+@e*#a*@f                       = a*e*f
 
-@e * (@f * @g)               = @e * @f * @g
-@e + (@f + @g)               = @e + @f + @g
-
-@e*#a                        = #a*@e
-@e*#a*@f                     = #a*@e*@f
-
-x^#a + y^#b if #a < #b       = y^#b + x^#a
-#a*x^#b + y^#c if #b < #c    = y^#c + #a*x^#b
-x^#a + #b*y^#c if #a < #c    = #b*y^#c + x^#a
-#a*x^#b + #c*y^#d if #b < #d = #c*y^#d + #a*x^#b
-
-x * x                        = x^2
-x^#a * x                     = x^(#a+1)
-x * x^#a                     = x^(1+#a)
-x^#a * x^#b                  = x^(#a+#b)
-
-x^#a + x^#a                  = 2*x^#a
-#a*x^#b + x^#b               = (#a+1)*x^#b
-x^#a + #b*x^#a               = (1+#b)*x^#a
-#a*x^#b + #c*x^#b            = (#a+#c)*x^#b
+#a?*x^#b + #c?*y^#d if #b < #d = c*y^d + a*x^b
+x^#a?{~1} * x^#b?{~1}          = x^(a+b)
+#a?{~1}*x^#b + #c?{~1}*x^#b    = (a+c)*x^b
