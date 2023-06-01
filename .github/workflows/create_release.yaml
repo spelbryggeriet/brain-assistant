@@ -127,6 +127,7 @@ jobs:
         draft: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        VERSION: ${{ steps.get_version.outputs.version }}
 
     - name: Get release number
       id: get_release_number
