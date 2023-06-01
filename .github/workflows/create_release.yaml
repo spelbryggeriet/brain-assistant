@@ -108,6 +108,12 @@ jobs:
         PULL_NUMBER: ${{ steps.get_pull_request_number.outputs.value }}
         VERSION: ${{ steps.get_version.outputs.version }}
 
+    - name: Get changelog
+      id: get_changelog
+      run: |
+        changelog_body=`scripts/get_changelog.py`
+        echo "changelog_body=${changelog_body}" >> $GITHUB_OUTPUT
+
     - name: Create release draft
       id: create_release_draft
       uses: octokit/request-action@v2.x
@@ -157,12 +163,6 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: package
-
-    - name: Get changelog
-      id: get_changelog
-      run: |
-        changelog_body=`scripts/get_changelog.py`
-        echo "changelog_body=${changelog_body}" >> $GITHUB_OUTPUT
 
     - name: Publish release
       uses: octokit/request-action@v2.x
