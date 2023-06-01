@@ -54,7 +54,7 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: update
-        args: --package brain
+        args: --package brain-assistant
 
     - name: Create release branch
       if: inputs.bumpVersion != 'skip'
