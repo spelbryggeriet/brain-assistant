@@ -5,10 +5,8 @@ and being an encyclopedia for mathematical concepts.
 
 ## Installation
 
-Run the following in your terminal:
+Install using cargo:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/spelbryggeriet/brain-assistant/main/scripts/init.sh | sh
+cargo install brain-assistant
 ```
-
-This will install the binary to `~/.local/bin` and update your PATH environment variable.
