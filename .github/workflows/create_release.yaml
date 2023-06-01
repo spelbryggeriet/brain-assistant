@@ -172,9 +172,14 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         RELEASE_ID: ${{ steps.get_relese_number.outputs.value }}
 
+    - name: Login to registry
+      uses: actions-rs/cargo@v1
+      with:
+        command: login
+      env:
+        CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+
     - name: Publish crate
       uses: actions-rs/cargo@v1
       with:
         command: publish
-      env:
-        CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
