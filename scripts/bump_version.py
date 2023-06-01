@@ -44,6 +44,17 @@ def update_version_file(next_version, path):
     return next_version
 
 
+def update_manifest(next_version, path, current_version):
+    manifest_path = os.path.join(REPO_DIR, path)
+    with open(manifest_path, "r") as f:
+        content = f.read()
+
+    content = content.replace(f'version = "{current_version}"', f'version = "{next_version}"', 1)
+
+    with open(manifest_path, "w") as f:
+        f.write(content)
+
+
 def update_changelog(next_version, path, repository_owner):
     HEADER_KEY = "## [Unreleased]"
 
@@ -81,6 +92,7 @@ def bump_version(bump_comp_idx, repository_owner):
     next_version = get_next_version(bump_comp_idx, current_version)
 
     update_version_file(next_version, "VERSION")
+    update_manifest(next_version, "Cargo.toml", current_version)
     update_changelog(next_version, "CHANGELOG.md", repository_owner)
 
     return next_version

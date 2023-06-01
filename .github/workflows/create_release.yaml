@@ -22,37 +22,43 @@ jobs:
   prepare_version:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.gv.outputs.version }}
+      version: ${{ steps.get_version.outputs.version }}
     steps:
     - uses: actions/checkout@v3
+
     - name: Check branch
       run: |
         if [[ ! `git branch --show-current` = 'main' ]] ; then
           echo "Releases can only be created from the \`main\` branch" >&2
           exit 1
         fi
+
     - name: Prepare branch
       run: |
         git fetch --tags
         git checkout -b feature
+
     - name: Bump version
       if: inputs.bumpVersion != 'skip'
       run: |
         scripts/bump_version.py ${{ inputs.bumpVersion }} ${{ github.repository_owner }}
+
     - name: Get version
-      id: gv
+      id: get_version
       run: |
         version=`scripts/get_version.py`
         echo "version=$version" >> $GITHUB_OUTPUT
+
     - name: Update lock file
       if: inputs.bumpVersion != 'skip'
       uses: actions-rs/cargo@v1
       with:
         command: update
         args: --package brain
+
     - name: Create release branch
       if: inputs.bumpVersion != 'skip'
-      id: crb
+      id: create_release_branch
       run: |
         release_branch="release/v${VERSION}"
         git checkout -b "$release_branch"
@@ -65,10 +71,11 @@ jobs:
         git push --set-upstream origin "$release_branch"
         echo "release_branch=$release_branch" >> $GITHUB_OUTPUT
       env:
-        VERSION: ${{ steps.gv.outputs.version }}
+        VERSION: ${{ steps.get_version.outputs.version }}
+
     - name: Create pull request
       if: inputs.bumpVersion != 'skip'
-      id: cpr
+      id: create_pull_request
       uses: octokit/request-action@v2.x
       with:
         route: POST /repos/${{ github.repository }}/pulls
@@ -78,15 +85,17 @@ jobs:
         head: ${{ env.RELEASE_BRANCH }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        RELEASE_BRANCH: ${{ steps.crb.outputs.release_branch }}
-        VERSION: ${{ steps.gv.outputs.version }}
+        RELEASE_BRANCH: ${{ steps.create_release_branch.outputs.release_branch }}
+        VERSION: ${{ steps.get_version.outputs.version }}
+
     - name: Get pull request number
-      id: gprn
+      id: get_pull_request_number
       uses: sergeysova/jq-action@v2
       with:
-        cmd: echo '${{ steps.cpr.outputs.data }}' | jq .number -r
+        cmd: echo '${{ steps.create_pull_request.outputs.data }}' | jq .number -r
       env:
-        JSON_DATA: ${{ steps.cpr.outputs.data }}
+        JSON_DATA: ${{ steps.create_pull_request.outputs.data }}
+
     - name: Merge pull request
       if: inputs.bumpVersion != 'skip'
       uses: octokit/request-action@v2.x
@@ -96,10 +105,10 @@ jobs:
         merge_method: squash
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        PULL_NUMBER: ${{ steps.gprn.outputs.value }}
-        VERSION: ${{ steps.gv.outputs.version }}
+        PULL_NUMBER: ${{ steps.get_pull_request_number.outputs.value }}
+        VERSION: ${{ steps.get_version.outputs.version }}
 
-  build_app:
+  build_and_publish:
     needs: prepare_version
     env:
       VERSION: ${{ needs.prepare_version.outputs.version }}
@@ -111,58 +120,29 @@ jobs:
       with:
         fetch-depth: 0
         ref: main
+
     - name: Install Rust
       uses: actions-rs/toolchain@v1
       with:
         toolchain: ${{ env.RUST_VERSION }}
         default: true
+
     - name: Cache Rust
       uses: Swatinem/rust-cache@v2
+
     - name: Build
       uses: actions-rs/cargo@v1
       with:
-        command: build
-        args: --release --verbose
-    - name: Zip artifact
-      id: za
-      run: |
-          artifact_name=`scripts/get_target.py`
-          cd target/release
-          zip -r ../../${artifact_name}.zip brain
-          echo "artifact_name=$artifact_name" >> $GITHUB_OUTPUT
-    - name: Upload artifact
-      uses: actions/upload-artifact@v2
-      with:
-        name: ${{ env.ARTIFACT_NAME }}
-        path: ${{ env.ARTIFACT_NAME }}.zip
-      env:
-        ARTIFACT_NAME: ${{ steps.za.outputs.artifact_name }}
+        command: package
 
-  create_release:
-    needs: [prepare_version, build_app, build_container]
-    env:
-      VERSION: ${{ needs.prepare_version.outputs.version }}
-      ARTIFACT_NAME: ${{ needs.build_app.outputs.artifact_name }}
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-      with:
-        fetch-depth: 0
-        ref: main
     - name: Get changelog
-      id: gcb
+      id: get_changelog
       run: |
         changelog_body=`scripts/get_changelog.py`
         echo "changelog_body=${changelog_body}" >> $GITHUB_OUTPUT
-    - name: Download artifact
-      uses: actions/download-artifact@v3
-      with:
-        name: ${{ env.ARTIFACT_NAME }}
-        path: artifact
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Create release draft
-      id: crd
+      id: create_release_draft
       uses: octokit/request-action@v2.x
       with:
         route: POST /repos/${{ github.repository }}/releases
@@ -170,29 +150,19 @@ jobs:
         target_commitish: main
         name: v${{ env.VERSION }}
         body: |-
-          ${{ steps.gcb.outputs.changelog_body }}
+          ${{ steps.get_changelog.outputs.changelog_body }}
         draft: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Get release number
-      id: grn
+      id: get_relese_number
       uses: sergeysova/jq-action@v2
       with:
-        cmd: echo '${{ steps.crd.outputs.data }}' | jq .id -r
+        cmd: echo '${{ steps.create_release_draft.outputs.data }}' | jq .id -r
       env:
-        JSON_DATA: ${{ steps.cpr.outputs.data }}
-    - name: Upload artifact
-      run: |
-        curl \
-          -X POST \
-          -H "Accept: application/vnd.github+json" \
-          -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-          -H "Content-Type: application/zip" \
-          --data-binary @artifact/${ARTIFACT_NAME}.zip \
-          https://uploads.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets?name=${ARTIFACT_NAME}.zip
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        RELEASE_ID: ${{ steps.grn.outputs.value }}
+        JSON_DATA: ${{ steps.create_pull_request.outputs.data }}
+
     - name: Publish release
       uses: octokit/request-action@v2.x
       with:
@@ -200,4 +170,11 @@ jobs:
         draft: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        RELEASE_ID: ${{ steps.grn.outputs.value }}
+        RELEASE_ID: ${{ steps.get_relese_number.outputs.value }}
+
+    - name: Publish crate
+      uses: actions-rs/cargo@v1
+      with:
+        command: publish
+      env:
+        CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
