@@ -132,9 +132,9 @@ jobs:
 
 
   build_and_publish:
-    needs: prepare_version
+    needs: prepare
     env:
-      VERSION: ${{ needs.prepare_version.outputs.version }}
+      VERSION: ${{ needs.prepare.outputs.version }}
     runs-on: macos-latest
     outputs:
       artifact_name: ${{ steps.za.outputs.artifact_name }}
