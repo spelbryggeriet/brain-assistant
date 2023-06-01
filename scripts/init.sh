@@ -38,7 +38,7 @@ main() {
 
   # Fetch the latest version number.
   local version=`curl --proto '=https' --tlsv1.2 -sSf \
-    https://api.github.com/repos/spelbryggeriet/brass/releases/latest \
+    https://api.github.com/repos/spelbryggeriet/brain-assistant/releases/latest \
     | sed -n 's/^  "tag_name": "\([^"]*\)",$/\1/p'`
   local filename="brass_macos-x86_64_${version}.zip"
 
