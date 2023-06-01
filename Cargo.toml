@@ -1,6 +1,6 @@
 [package]
 name = "brain-assistant"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2021"
 description = "Mathematics tool and encyclopedia for the terminal"
 readme = "README.md"
