@@ -1,0 +1,47 @@
+name: Test
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+    - '**.md'
+    - 'scripts/**'
+    - '.gitignore'
+    - '.github/**'
+    - '!.github/workflows/test.yml'
+  pull_request:
+    branches: [ main ]
+    paths-ignore:
+    - '**.md'
+    - 'scripts/**'
+    - '.gitignore'
+    - '.github/**'
+    - '!.github/workflows/test.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: 1.69.0
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: ${{ env.RUST_VERSION }}
+        default: true
+        components: clippy
+    - name: Cache Rust
+      uses: Swatinem/rust-cache@v2
+    - name: Lint
+      uses: actions-rs/cargo@v1
+      with:
+        command: clippy
+        args: --verbose --release -- -D warnings
+    - name: Run tests
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+        args: --verbose --release
