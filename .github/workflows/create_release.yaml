@@ -22,7 +22,7 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.get_version.outputs.version }}
+      release_id: ${{ steps.get_release_number.outputs.value }}
     steps:
     - uses: actions/checkout@v3
 
@@ -140,10 +140,8 @@ jobs:
   build_and_publish:
     needs: prepare
     env:
-      VERSION: ${{ needs.prepare.outputs.version }}
+        RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
     runs-on: macos-latest
-    outputs:
-      artifact_name: ${{ steps.za.outputs.artifact_name }}
     steps:
     - uses: actions/checkout@v3
       with:
@@ -171,7 +169,6 @@ jobs:
         draft: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        RELEASE_ID: ${{ steps.get_release_number.outputs.value }}
 
     - name: Login to registry
       uses: actions-rs/cargo@v1
