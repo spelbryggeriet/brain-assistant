@@ -69,6 +69,7 @@ impl Expr {
         Ok(())
     }
 
+    #[allow(unused)]
     pub fn reduce_with_steps(&mut self) -> anyhow::Result<Vec<Self>> {
         let mut reductions = vec![self.clone()];
         self.reduce_helper(Some(&mut reductions), false)?;

@@ -40,17 +40,15 @@ fn run() -> anyhow::Result<()> {
             }
         };
 
-        let steps = match expr.reduce_with_steps() {
-            Ok(steps) => steps,
+        match expr.reduce() {
+            Ok(()) => (),
             Err(err) => {
                 report_user_error(err);
                 continue;
             }
         };
 
-        for step in steps {
-            println!("{}", step.to_string().blue());
-        }
+        println!("{}", expr.to_string().blue());
     }
 }
 
