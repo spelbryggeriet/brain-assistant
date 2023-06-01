@@ -175,3 +175,5 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: publish
+      env:
+        CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
