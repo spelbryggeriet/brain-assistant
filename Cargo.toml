@@ -1,9 +1,14 @@
 [package]
 name = "brain-assistant"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2021"
 description = "Mathematics tool and encyclopedia for the terminal"
+readme = "README.md"
+homepage = "https://github.com/spelbryggeriet/brain-assistant"
+repository = "https://github.com/spelbryggeriet/brain-assistant"
 license = "Apache-2.0"
+keywords = ["math", "cli"]
+categories = ["mathematics", "command-line-utilities"]
 
 [[bin]]
 path = "src/main.rs"
