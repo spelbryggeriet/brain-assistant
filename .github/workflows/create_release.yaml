@@ -108,6 +108,29 @@ jobs:
         PULL_NUMBER: ${{ steps.get_pull_request_number.outputs.value }}
         VERSION: ${{ steps.get_version.outputs.version }}
 
+    - name: Create release draft
+      id: create_release_draft
+      uses: octokit/request-action@v2.x
+      with:
+        route: POST /repos/${{ github.repository }}/releases
+        tag_name: v${{ env.VERSION }}
+        target_commitish: main
+        name: v${{ env.VERSION }}
+        body: |-
+          ${{ steps.get_changelog.outputs.changelog_body }}
+        draft: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Get release number
+      id: get_release_number
+      uses: sergeysova/jq-action@v2
+      with:
+        cmd: echo '${{ steps.create_release_draft.outputs.data }}' | jq .id -r
+      env:
+        JSON_DATA: ${{ steps.create_pull_request.outputs.data }}
+
+
   build_and_publish:
     needs: prepare_version
     env:
@@ -141,28 +164,6 @@ jobs:
         changelog_body=`scripts/get_changelog.py`
         echo "changelog_body=${changelog_body}" >> $GITHUB_OUTPUT
 
-    - name: Create release draft
-      id: create_release_draft
-      uses: octokit/request-action@v2.x
-      with:
-        route: POST /repos/${{ github.repository }}/releases
-        tag_name: v${{ env.VERSION }}
-        target_commitish: main
-        name: v${{ env.VERSION }}
-        body: |-
-          ${{ steps.get_changelog.outputs.changelog_body }}
-        draft: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Get release number
-      id: get_relese_number
-      uses: sergeysova/jq-action@v2
-      with:
-        cmd: echo '${{ steps.create_release_draft.outputs.data }}' | jq .id -r
-      env:
-        JSON_DATA: ${{ steps.create_pull_request.outputs.data }}
-
     - name: Publish release
       uses: octokit/request-action@v2.x
       with:
@@ -170,7 +171,7 @@ jobs:
         draft: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        RELEASE_ID: ${{ steps.get_relese_number.outputs.value }}
+        RELEASE_ID: ${{ steps.get_release_number.outputs.value }}
 
     - name: Login to registry
       uses: actions-rs/cargo@v1
