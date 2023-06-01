@@ -9,8 +9,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.1.0] - 2023-06-01
 
-Image tag: ghcr.io/spelbryggeriet/game-box-backend:0.1.0
-
 ### Added
 
 - Simple expression parsing and reduction.

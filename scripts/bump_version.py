@@ -82,7 +82,7 @@ def update_changelog(next_version, path, repository_owner):
     if new_content != new_content.replace(HEADER_KEY, new_header):
         error("multiple unreleased version sections found")
 
-    new_content = new_content.replace(new_header, f"{HEADER_KEY}\n\n{new_header}\n\nImage tag: ghcr.io/{repository_owner}/game-box-backend:{next_version}")
+    new_content = new_content.replace(new_header, f"{HEADER_KEY}\n\n{new_header}")
     with open(changelog_path, "w") as f:
         f.write(new_content)
 
