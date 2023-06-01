@@ -2,10 +2,12 @@
 name = "brain-assistant"
 version = "0.1.0"
 edition = "2021"
+description = "Mathematics tool and encyclopedia for the terminal"
+license = "Apache-2.0"
 
 [[bin]]
 path = "src/main.rs"
-name = "brass"
+name = "brain"
 
 [dependencies]
 anyhow = "1.0.71"

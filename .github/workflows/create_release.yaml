@@ -49,7 +49,7 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: update
-        args: --package brass
+        args: --package brain
     - name: Create release branch
       if: inputs.bumpVersion != 'skip'
       id: crb
@@ -128,7 +128,7 @@ jobs:
       run: |
           artifact_name=`scripts/get_target.py`
           cd target/release
-          zip -r ../../${artifact_name}.zip brass
+          zip -r ../../${artifact_name}.zip brain
           echo "artifact_name=$artifact_name" >> $GITHUB_OUTPUT
     - name: Upload artifact
       uses: actions/upload-artifact@v2
