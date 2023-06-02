@@ -16,7 +16,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_VERSION: 1.69.0
+  RUST_VERSION: 1.70.0
 
 jobs:
   prepare:
@@ -36,7 +36,6 @@ jobs:
     - name: Prepare branch
       run: |
         git fetch --tags
-        git checkout -b feature
 
     - name: Bump version
       if: inputs.bumpVersion != 'skip'
@@ -54,7 +53,7 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: update
-        args: --offline --package brain-assistant
+        args: --package brain-assistant
 
     - name: Create release branch
       if: inputs.bumpVersion != 'skip'

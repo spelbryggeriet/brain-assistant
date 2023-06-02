@@ -13,7 +13,14 @@ cargo install brain-assistant
 
 ## Usage
 
-Invoke the `brain` command to start the REPL:
+Pass an expression to the `brain` command to parse and reduce an expression:
+
+```sh
+$ brain 1+2+3
+6
+```
+
+Invoke the `brain` command without any arguments to start the REPL:
 
 ```sh
 $ brain
