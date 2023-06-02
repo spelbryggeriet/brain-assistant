@@ -33,7 +33,7 @@ jobs:
           exit 1
         fi
 
-    - name: Prepare branch
+    - name: Prepare repo
       run: |
         git fetch --tags
 
