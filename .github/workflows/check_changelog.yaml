@@ -10,6 +10,10 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
+    - name: Prepare repo
+      run: |
+        git fetch
+
     - name: Check changelog history
       run: |
         git diff --exit-code ${{ github.event.pull_request.base.ref }} HEAD -- CHANGELOG.md
