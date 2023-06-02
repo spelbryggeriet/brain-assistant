@@ -10,6 +10,9 @@ use colored::Colorize;
 use once_cell::sync::Lazy;
 
 fn main() {
+    #[cfg(windows)]
+    colored::control::set_virtual_terminal(true).unwrap();
+
     let matches = command!()
         .arg(Arg::new("expression").action(ArgAction::Append))
         .get_matches();
