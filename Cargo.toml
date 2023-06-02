@@ -16,6 +16,7 @@ name = "brain"
 
 [dependencies]
 anyhow = "1.0.71"
+clap = { version = "4.3.0", features = ["cargo"] }
 colored = "2.0.0"
 lazy-regex = "2.5.0"
 nom = "7.1.3"

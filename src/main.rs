@@ -5,19 +5,34 @@ mod reduce;
 use std::io::{stdin, stdout, Write};
 
 use anyhow::Context;
+use clap::{command, Arg, ArgAction};
 use colored::Colorize;
 use once_cell::sync::Lazy;
 
 fn main() {
+    let matches = command!()
+        .arg(Arg::new("expression").action(ArgAction::Append))
+        .get_matches();
+
     Lazy::force(&reduce::RULES);
 
-    match run() {
-        Ok(()) => (),
-        Err(err) => report_fatal_error(err),
+    let expression: String = matches
+        .get_many::<String>("expression")
+        .unwrap_or_default()
+        .map(|s| s.as_str())
+        .collect();
+
+    if !expression.is_empty() {
+        process_expr(&expression);
+    } else {
+        match repl() {
+            Ok(()) => (),
+            Err(err) => report_fatal_error(err),
+        }
     }
 }
 
-fn run() -> anyhow::Result<()> {
+fn repl() -> anyhow::Result<()> {
     let mut input = String::new();
     loop {
         print!("{} ", ">>".yellow());
@@ -27,29 +42,39 @@ fn run() -> anyhow::Result<()> {
         stdin()
             .read_line(&mut input)
             .context("reading standard input")?;
+
+        if input.trim().is_empty() {
+            continue;
+        }
+
         if !input.ends_with('\n') {
             println!();
         }
+
         let input: String = input.chars().filter(|c| !c.is_whitespace()).collect();
 
-        let mut expr = match parse::expr(&input) {
-            Ok(expr) => expr,
-            Err(err) => {
-                report_user_error(err);
-                continue;
-            }
-        };
-
-        match expr.reduce() {
-            Ok(()) => (),
-            Err(err) => {
-                report_user_error(err);
-                continue;
-            }
-        };
-
-        println!("{}", expr.to_string().blue());
+        process_expr(&input);
     }
+}
+
+fn process_expr(input: &str) {
+    let mut expr = match parse::expr(input) {
+        Ok(expr) => expr,
+        Err(err) => {
+            report_user_error(err);
+            return;
+        }
+    };
+
+    match expr.reduce() {
+        Ok(()) => (),
+        Err(err) => {
+            report_user_error(err);
+            return;
+        }
+    };
+
+    println!("{}", expr.to_string().blue());
 }
 
 fn report_fatal_error(err: anyhow::Error) {
