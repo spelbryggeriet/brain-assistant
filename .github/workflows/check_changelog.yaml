@@ -17,6 +17,6 @@ jobs:
     - name: Check changelog history
       run: |
         git diff --exit-code origin/${{ github.event.pull_request.base.ref }} HEAD -- CHANGELOG.md
-        if $? == 0 ; then
+        if [[ $? == 0 ]] ; then
           exit 1
         fi
