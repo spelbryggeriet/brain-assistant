@@ -18,5 +18,6 @@ jobs:
       run: |
         git diff --exit-code origin/${{ github.event.pull_request.base.ref }} HEAD -- CHANGELOG.md
         if [[ $? == 0 ]] ; then
+          echo "Changelog not updated"
           exit 1
         fi
