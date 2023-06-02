@@ -24,22 +24,29 @@ env:
 
 jobs:
   test:
-    runs-on: macos-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v3
+
     - name: Install Rust
       uses: actions-rs/toolchain@v1
       with:
         toolchain: ${{ env.RUST_VERSION }}
         default: true
         components: clippy
+
     - name: Cache Rust
       uses: Swatinem/rust-cache@v2
+
     - name: Lint
       uses: actions-rs/cargo@v1
       with:
         command: clippy
         args: --verbose --release -- -D warnings
+
     - name: Run tests
       uses: actions-rs/cargo@v1
       with:
