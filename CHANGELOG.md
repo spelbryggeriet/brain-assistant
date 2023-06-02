@@ -7,6 +7,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Expressions can now be parsed by providing input as command line arguments.
+
 ## [0.1.0] - 2023-06-01
 
 ### Added
