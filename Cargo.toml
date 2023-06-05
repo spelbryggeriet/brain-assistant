@@ -18,9 +18,11 @@ name = "brain"
 anyhow = "1.0.71"
 clap = { version = "4.3.0", features = ["cargo"] }
 colored = "2.0.0"
+crossterm = "0.26.1"
 lazy-regex = "2.5.0"
 nom = "7.1.3"
 num-bigint = "0.4.3"
 num-traits = "0.2.15"
 once_cell = "1.17.1"
+ratatui = "0.21.0"
 uuid = { version = "1.3.3", features = ["v4"] }

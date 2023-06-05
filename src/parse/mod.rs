@@ -5,7 +5,6 @@ mod template;
 use std::fmt::{Debug, Display};
 
 use anyhow::{anyhow, Context};
-use colored::Colorize;
 use nom::{
     character::complete::space0, combinator::opt, error::ParseError, sequence::delimited, AsChar,
     Err, IResult, InputTakeAtPosition, Parser,
@@ -30,13 +29,10 @@ fn map_result<T: Display + Debug>(s: &str, res: IResult<&str, T>) -> anyhow::Res
         if remaining.is_empty() {
             Ok(e)
         } else {
-            Err(anyhow!(
-                "unrecognized trailing characters: {}",
-                remaining.white(),
-            ))
+            Err(anyhow!("unrecognized trailing characters: {remaining}"))
         }
     })
-    .with_context(|| format!("parsing expression: {}", s.white()))
+    .with_context(|| format!("parsing expression: {s}"))
 }
 
 pub fn spaced<I, O, E: ParseError<I>, F>(f: F) -> impl FnMut(I) -> IResult<I, O, E>
