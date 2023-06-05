@@ -20,7 +20,7 @@ use ratatui::{
     backend::CrosstermBackend,
     style::{Color, Style},
     text::{Line, Span, Text},
-    widgets::Paragraph,
+    widgets::{Paragraph, Wrap},
     Terminal,
 };
 
@@ -104,17 +104,18 @@ fn repl(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> anyhow::Result<()>
         () => {{
             terminal
                 .draw(|f| {
-                    f.render_widget(Paragraph::new(text.clone()), f.size());
+                    f.render_widget(
+                        Paragraph::new(text.clone()).wrap(Wrap { trim: false }),
+                        f.size(),
+                    );
                 })
                 .context("drawing repl")?;
         }};
     }
 
     loop {
-        println(
-            style!(#Yellow(">>"), " ", Cow::Owned(String::new()), "▏"),
-            &mut Some(&mut text.lines),
-        );
+        text.lines
+            .push(style!(#Yellow(">>"), " ", Cow::Owned(String::new()), "▏"));
 
         draw_repl!();
 
@@ -131,6 +132,7 @@ fn repl(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> anyhow::Result<()>
                     KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                         return Ok(());
                     }
+                    KeyCode::Char(' ') => input.push(' '), // replace regular space with non-breaking space
                     KeyCode::Char(c) => input.push(c),
                     KeyCode::Backspace if !input.is_empty() => {
                         input.pop();
@@ -230,7 +232,10 @@ fn println<'a>(line: Line<'a>, buffer: &mut Option<&mut Vec<Line<'a>>>) {
             queue!(stdout, SetForegroundColor(CColor::Reset)).unwrap();
         }
 
+        #[cfg(not(windows))]
         queue!(stdout, Print('\n')).unwrap();
+        #[cfg(windows)]
+        queue!(stdout, Print("\r\n")).unwrap();
 
         stdout.flush().unwrap();
     }
