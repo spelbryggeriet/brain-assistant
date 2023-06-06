@@ -100,51 +100,42 @@ macro_rules! style {
 fn repl(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> anyhow::Result<()> {
     let mut text = Text::default();
 
-    macro_rules! draw_repl {
-        () => {{
-            terminal
-                .draw(|f| {
-                    f.render_widget(
-                        Paragraph::new(text.clone()).wrap(Wrap { trim: false }),
-                        f.size(),
-                    );
-                })
-                .context("drawing repl")?;
-        }};
-    }
-
     loop {
         text.lines
             .push(style!(#Yellow(">>"), " ", Cow::Owned(String::new()), "▏"));
 
-        draw_repl!();
+        draw_repl(terminal, &mut text)?;
 
         let input = loop {
-            if let Event::Key(key) = event::read().context("reading input")? {
-                let line = text.lines.last_mut().unwrap();
-                let input = match &mut line.spans[2].content {
-                    Cow::Owned(input) => input,
-                    _ => panic!("expected owned input"),
-                };
+            match event::read().context("reading input")? {
+                Event::Key(key) => {
+                    let line = text.lines.last_mut().unwrap();
+                    let input = match &mut line.spans[2].content {
+                        Cow::Owned(input) => input,
+                        _ => panic!("expected owned input"),
+                    };
 
-                match key.code {
-                    KeyCode::Esc => return Ok(()),
-                    KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        return Ok(());
+                    match key.code {
+                        KeyCode::Esc => return Ok(()),
+                        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                            return Ok(());
+                        }
+                        KeyCode::Char(' ') => input.push(' '), // replace regular space with non-breaking space
+                        KeyCode::Char(c) => input.push(c),
+                        KeyCode::Backspace if !input.is_empty() => {
+                            input.pop();
+                        }
+                        KeyCode::Enter => {
+                            line.spans.pop();
+                            break &line.spans.last().unwrap().content;
+                        }
+                        _ => continue,
                     }
-                    KeyCode::Char(' ') => input.push(' '), // replace regular space with non-breaking space
-                    KeyCode::Char(c) => input.push(c),
-                    KeyCode::Backspace if !input.is_empty() => {
-                        input.pop();
-                    }
-                    KeyCode::Enter => {
-                        line.spans.pop();
-                        break &line.spans.last().unwrap().content;
-                    }
-                    _ => continue,
+
+                    draw_repl(terminal, &mut text)?;
                 }
-
-                draw_repl!();
+                Event::Resize(_, _) => draw_repl(terminal, &mut text)?,
+                _ => (),
             }
         };
 
@@ -154,6 +145,33 @@ fn repl(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> anyhow::Result<()>
 
         process_expr(&input.clone(), &mut Some(&mut text.lines));
     }
+}
+
+fn draw_repl(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    text: &mut Text,
+) -> anyhow::Result<()> {
+    terminal
+        .draw(|f| {
+            let size = f.size();
+
+            let scroll_offset = (text.lines.len()).saturating_sub(size.height as usize);
+            let scroll_offset = if let Ok(scroll_offset) = u16::try_from(scroll_offset) {
+                scroll_offset
+            } else {
+                text.lines.drain(0..scroll_offset - u16::MAX as usize);
+                u16::MAX
+            };
+
+            f.render_widget(
+                Paragraph::new(text.clone())
+                    .wrap(Wrap { trim: false })
+                    .scroll((scroll_offset, 0)),
+                size,
+            );
+        })
+        .context("drawing repl")
+        .map(|_| ())
 }
 
 fn process_expr(input: &str, buffer: &mut Option<&mut Vec<Line>>) {
