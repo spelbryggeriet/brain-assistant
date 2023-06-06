@@ -19,7 +19,7 @@ use expr::Expr;
 use once_cell::sync::Lazy;
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Alignment, Constraint, Direction, Layout},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Style},
     text::{Line, Span, Text},
     widgets::{Block, BorderType, Borders, Paragraph},
@@ -69,6 +69,64 @@ impl AppData {
 #[derive(Default)]
 struct ExprInfo {
     steps: Option<Vec<Expr>>,
+}
+
+struct TextComposer<'a> {
+    text: Text<'a>,
+    dimensions: Rect,
+    first_index: usize,
+    last_index: usize,
+}
+
+impl<'a> TextComposer<'a> {
+    fn new(dimensions: Rect) -> Self {
+        Self {
+            text: Text {
+                lines: vec![Line::default(); dimensions.height as usize],
+            },
+            dimensions,
+            first_index: 0,
+            last_index: dimensions.height as usize,
+        }
+    }
+
+    fn extend_text(&mut self, mut text: Text<'a>) -> bool {
+        let size = (self.first_index + text.height()).min(self.last_index) - self.first_index;
+        self.first_index += size;
+        let mut lines = text.lines.drain(..size);
+        self.text.lines[self.first_index - size..self.first_index]
+            .fill_with(|| lines.next().unwrap());
+        self.available_lines() > 0
+    }
+
+    fn extend_text_from_back(&mut self, mut text: Text<'a>) -> bool {
+        let text_height = text.height();
+        let size = self.last_index
+            - self
+                .last_index
+                .saturating_sub(text_height)
+                .max(self.first_index);
+        self.last_index -= size;
+        let mut lines = text.lines.drain(text_height - size..);
+        self.text.lines[self.last_index..self.last_index + size]
+            .fill_with(|| lines.next().unwrap());
+        self.available_lines() > 0
+    }
+
+    fn available_lines(&self) -> usize {
+        self.last_index - self.first_index
+    }
+
+    fn finish(mut self) -> Text<'a> {
+        if self.first_index == 0 {
+            let diff = (self.dimensions.height as usize)
+                .saturating_sub(self.dimensions.height as usize - self.last_index);
+            if diff > 0 {
+                self.text.lines.rotate_left(diff);
+            }
+        }
+        self.text
+    }
 }
 
 fn main() {
@@ -209,17 +267,14 @@ fn draw_repl(
             let mut info_pane = chunks[0];
             let repl_pane = chunks[1];
 
-            let mut repl_text = Text {
-                lines: vec![Line::default(); repl_pane.height as usize],
-            };
-
-            let mut last_index = repl_pane.height as usize;
+            let mut repl_text_composer = TextComposer::new(repl_pane);
 
             'build_repl_text: {
-                let yellow = Style::default().fg(Color::Yellow);
-                if last_index == 0 {
+                if repl_text_composer.available_lines() == 0 {
                     break 'build_repl_text;
                 }
+
+                let yellow = Style::default().fg(Color::Yellow);
 
                 if let Some(input) = app_data.input.as_deref() {
                     let input_line = Line::from(vec![
@@ -233,9 +288,7 @@ fn draw_repl(
                         Text::from(input_line)
                     };
 
-                    last_index = append_text_from_back(input_text, &mut repl_text, last_index);
-
-                    if last_index == 0 {
+                    if !repl_text_composer.extend_text_from_back(input_text) {
                         break 'build_repl_text;
                     }
                 }
@@ -254,9 +307,7 @@ fn draw_repl(
                             Text::from(line)
                         };
 
-                        last_index = append_text_from_back(line_text, &mut repl_text, last_index);
-
-                        if last_index == 0 {
+                        if !repl_text_composer.extend_text_from_back(line_text) {
                             break 'build_repl_text;
                         }
                     }
@@ -271,20 +322,13 @@ fn draw_repl(
                         Text::from(input_line)
                     };
 
-                    last_index = append_text_from_back(input_text, &mut repl_text, last_index);
-
-                    if last_index == 0 {
+                    if !repl_text_composer.extend_text_from_back(input_text) {
                         break 'build_repl_text;
                     }
                 }
-
-                let diff =
-                    (repl_pane.height as usize).saturating_sub(repl_text.height() - last_index);
-                if diff > 0 {
-                    repl_text.lines.rotate_left(diff);
-                }
             }
 
+            let repl_text = repl_text_composer.finish();
             f.render_widget(
                 Paragraph::new(repl_text).block(
                     Block::default()
@@ -295,9 +339,13 @@ fn draw_repl(
             );
 
             if let Some(steps) = &app_data.info.steps {
-                let mut steps_text = Text::default();
+                let mut steps_text_composer = TextComposer::new(Rect {
+                    height: info_pane.height.saturating_sub(1),
+                    ..info_pane
+                });
+
                 for (i, step) in (1..).zip(steps) {
-                    steps_text.extend(split_line(
+                    let has_lines_left = steps_text_composer.extend_text(split_line(
                         Line::from(vec![
                             Span::styled(
                                 format!("({i}) "),
@@ -307,8 +355,13 @@ fn draw_repl(
                         ]),
                         info_pane.width as usize,
                     ));
+
+                    if !has_lines_left {
+                        break;
+                    }
                 }
 
+                let steps_text = steps_text_composer.finish();
                 let height = (steps_text.height() + 1).min(info_pane.height as usize) as u16;
 
                 let chunks = Layout::default()
@@ -377,18 +430,6 @@ fn split_line(input_line: Line, width: usize) -> Text {
     }
 
     text
-}
-
-fn append_text_from_back<'a>(
-    mut text: Text<'a>,
-    buffer: &mut Text<'a>,
-    mut last_index: usize,
-) -> usize {
-    let size = last_index - last_index.saturating_sub(text.height());
-    last_index -= size;
-    let mut lines = text.lines.drain(text.height() - size..);
-    buffer.lines[last_index..last_index + size].fill_with(|| lines.next().unwrap());
-    last_index
 }
 
 fn expr_text(expr: impl Borrow<Expr>) -> Text<'static> {
