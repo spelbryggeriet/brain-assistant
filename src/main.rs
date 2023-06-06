@@ -19,10 +19,10 @@ use expr::Expr;
 use once_cell::sync::Lazy;
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
+    layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Style},
     text::{Line, Span, Text},
-    widgets::Paragraph,
+    widgets::{Block, BorderType, Borders, Paragraph},
     Terminal,
 };
 
@@ -30,7 +30,7 @@ use ratatui::{
 struct AppData {
     history: Vec<(String, Option<anyhow::Result<Expr>>)>,
     input: Option<String>,
-    info: Option<ExprInfo>,
+    info: ExprInfo,
 }
 
 impl AppData {
@@ -46,7 +46,18 @@ impl AppData {
         self.history.last().map(|(i, _)| i.as_str())
     }
 
-    fn finish_result(&mut self, result: anyhow::Result<Expr>) {
+    fn finish_result(&mut self, result: anyhow::Result<(Expr, Vec<Expr>)>) {
+        let result = match result {
+            Ok((expr, steps)) => {
+                self.info.steps.replace(steps);
+                Ok(expr)
+            }
+            Err(err) => {
+                self.info.steps.take();
+                Err(err)
+            }
+        };
+
         let last_result = &mut self.history.last_mut().unwrap().1;
         assert!(
             last_result.replace(result).is_none(),
@@ -55,8 +66,9 @@ impl AppData {
     }
 }
 
+#[derive(Default)]
 struct ExprInfo {
-    steps: Vec<Expr>,
+    steps: Option<Vec<Expr>>,
 }
 
 fn main() {
@@ -172,12 +184,12 @@ fn repl(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> anyhow::Result<()>
             continue;
         }
 
-        let expr = parse::expr(last_input).and_then(|mut expr| {
-            expr.reduce()?;
-            Ok(expr)
+        let result = parse::expr(last_input).and_then(|mut expr| {
+            let steps = expr.reduce_with_steps()?;
+            Ok((expr, steps))
         });
 
-        app_data.finish_result(expr);
+        app_data.finish_result(result);
     }
 }
 
@@ -191,10 +203,10 @@ fn draw_repl(
 
             let chunks = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([Constraint::Min(50), Constraint::Ratio(3, 4)])
+                .constraints([Constraint::Max(50), Constraint::Ratio(3, 4)])
                 .split(f.size());
 
-            let info_pane = chunks[0];
+            let mut info_pane = chunks[0];
             let repl_pane = chunks[1];
 
             let mut repl_text = Text {
@@ -273,7 +285,52 @@ fn draw_repl(
                 }
             }
 
-            f.render_widget(Paragraph::new(repl_text), repl_pane);
+            f.render_widget(
+                Paragraph::new(repl_text).block(
+                    Block::default()
+                        .borders(Borders::LEFT)
+                        .border_type(BorderType::Thick),
+                ),
+                repl_pane,
+            );
+
+            if let Some(steps) = &app_data.info.steps {
+                let mut steps_text = Text::default();
+                for (i, step) in (1..).zip(steps) {
+                    steps_text.extend(split_line(
+                        Line::from(vec![
+                            Span::styled(
+                                format!("({i}) "),
+                                Style::default().fg(Color::Rgb(75, 75, 75)),
+                            ),
+                            Span::styled(step.to_string(), Style::default().fg(Color::Blue)),
+                        ]),
+                        info_pane.width as usize,
+                    ));
+                }
+
+                let height = (steps_text.height() + 1).min(info_pane.height as usize) as u16;
+
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Length(height), Constraint::Min(0)])
+                    .split(info_pane);
+
+                f.render_widget(
+                    Paragraph::new(steps_text).block(
+                        Block::default()
+                            .title("Steps")
+                            .title_alignment(Alignment::Center)
+                            .borders(Borders::TOP),
+                    ),
+                    chunks[0],
+                );
+
+                #[allow(unused)]
+                {
+                    info_pane = chunks[1];
+                }
+            }
         })
         .context("drawing repl")
         .map(|_| ())
