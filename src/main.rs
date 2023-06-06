@@ -3,7 +3,7 @@ mod parse;
 mod reduce;
 
 use std::{
-    borrow::Cow,
+    borrow::{Borrow, Cow},
     io::{self, Stdout, Write},
 };
 
@@ -15,14 +15,49 @@ use crossterm::{
     style::{Color as CColor, Print, SetForegroundColor},
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use expr::Expr;
 use once_cell::sync::Lazy;
 use ratatui::{
     backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
     style::{Color, Style},
     text::{Line, Span, Text},
-    widgets::{Paragraph, Wrap},
+    widgets::Paragraph,
     Terminal,
 };
+
+#[derive(Default)]
+struct AppData {
+    history: Vec<(String, Option<anyhow::Result<Expr>>)>,
+    input: Option<String>,
+    info: Option<ExprInfo>,
+}
+
+impl AppData {
+    fn begin_input(&mut self) {
+        self.input = Some(String::new());
+    }
+
+    fn finish_input(&mut self) {
+        self.history.push((self.input.take().unwrap(), None));
+    }
+
+    fn last_submitted_input(&self) -> Option<&str> {
+        self.history.last().map(|(i, _)| i.as_str())
+    }
+
+    fn finish_result(&mut self, result: anyhow::Result<Expr>) {
+        let last_result = &mut self.history.last_mut().unwrap().1;
+        assert!(
+            last_result.replace(result).is_none(),
+            "expected empty result"
+        );
+    }
+}
+
+struct ExprInfo {
+    steps: Vec<Expr>,
+}
 
 fn main() {
     let matches = command!()
@@ -38,24 +73,40 @@ fn main() {
         .collect();
 
     if !expression.is_empty() {
-        process_expr(&expression, &mut None);
+        let mut expr = match parse::expr(&expression) {
+            Ok(expr) => expr,
+            Err(err) => {
+                print_text(user_error_text(err));
+                return;
+            }
+        };
+
+        match expr.reduce() {
+            Ok(()) => (),
+            Err(err) => {
+                print_text(user_error_text(err));
+                return;
+            }
+        };
+
+        print_text(expr_text(expr))
     } else {
         let mut terminal = match setup_terminal() {
             Ok(terminal) => terminal,
             Err(err) => {
-                report_fatal_error(err, &mut None);
+                print_text(fatal_error_text(err));
                 return;
             }
         };
 
         match repl(&mut terminal) {
             Ok(()) => (),
-            Err(err) => report_fatal_error(err, &mut None),
+            Err(err) => print_text(fatal_error_text(err)),
         }
 
         match restore_terminal(terminal) {
             Ok(()) => (),
-            Err(err) => report_fatal_error(err, &mut None),
+            Err(err) => print_text(fatal_error_text(err)),
         }
     }
 }
@@ -79,143 +130,243 @@ fn restore_terminal(mut terminal: Terminal<CrosstermBackend<Stdout>>) -> anyhow:
     Ok(())
 }
 
-macro_rules! style {
-    (@impl (#$color:ident($e:expr) $(, $($rest:tt)*)?) => [$($parsed:tt)*]) => {
-        style!(@impl ($($($rest)*)?) => [$($parsed)* Span::styled($e, Style::default().fg(Color::$color)),])
-    };
-
-    (@impl ($e:expr $(, $($rest:tt)*)?) => [$($parsed:tt)*]) => {
-        style!(@impl ($($($rest)*)?) => [$($parsed)* Span::raw($e),])
-    };
-
-    (@impl () => [$($parsed:tt)*]) => {
-       Line { spans: vec![$($parsed)*], ..Default::default() }
-    };
-
-    ($($tokens:tt)*) => {
-        style!(@impl ($($tokens)*) => [])
-    };
-}
-
 fn repl(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> anyhow::Result<()> {
-    let mut text = Text::default();
+    let mut app_data = AppData::default();
 
     loop {
-        text.lines
-            .push(style!(#Yellow(">>"), " ", Cow::Owned(String::new()), "▏"));
+        app_data.begin_input();
 
-        draw_repl(terminal, &mut text)?;
+        draw_repl(terminal, &mut app_data)?;
 
-        let input = loop {
+        loop {
             match event::read().context("reading input")? {
                 Event::Key(key) => {
-                    let line = text.lines.last_mut().unwrap();
-                    let input = match &mut line.spans[2].content {
-                        Cow::Owned(input) => input,
-                        _ => panic!("expected owned input"),
-                    };
+                    let input = app_data.input.as_mut().unwrap();
 
                     match key.code {
                         KeyCode::Esc => return Ok(()),
                         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                             return Ok(());
                         }
-                        KeyCode::Char(' ') => input.push(' '), // replace regular space with non-breaking space
                         KeyCode::Char(c) => input.push(c),
                         KeyCode::Backspace if !input.is_empty() => {
                             input.pop();
                         }
                         KeyCode::Enter => {
-                            line.spans.pop();
-                            break &line.spans.last().unwrap().content;
+                            break;
                         }
                         _ => continue,
                     }
 
-                    draw_repl(terminal, &mut text)?;
+                    draw_repl(terminal, &mut app_data)?;
                 }
-                Event::Resize(_, _) => draw_repl(terminal, &mut text)?,
+                Event::Resize(_, _) => draw_repl(terminal, &mut app_data)?,
                 _ => (),
             }
-        };
+        }
 
-        if input.trim().is_empty() {
+        app_data.finish_input();
+
+        let last_input = app_data.last_submitted_input().unwrap();
+        if last_input.trim().is_empty() {
             continue;
         }
 
-        process_expr(&input.clone(), &mut Some(&mut text.lines));
+        let expr = parse::expr(last_input).and_then(|mut expr| {
+            expr.reduce()?;
+            Ok(expr)
+        });
+
+        app_data.finish_result(expr);
     }
 }
 
 fn draw_repl(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    text: &mut Text,
+    app_data: &mut AppData,
 ) -> anyhow::Result<()> {
     terminal
         .draw(|f| {
-            let size = f.size();
+            const INPUT_PREFIX: &str = ">>";
 
-            let scroll_offset = (text.lines.len()).saturating_sub(size.height as usize);
-            let scroll_offset = if let Ok(scroll_offset) = u16::try_from(scroll_offset) {
-                scroll_offset
-            } else {
-                text.lines.drain(0..scroll_offset - u16::MAX as usize);
-                u16::MAX
+            let chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Min(50), Constraint::Ratio(3, 4)])
+                .split(f.size());
+
+            let info_pane = chunks[0];
+            let repl_pane = chunks[1];
+
+            let mut repl_text = Text {
+                lines: vec![Line::default(); repl_pane.height as usize],
             };
 
-            f.render_widget(
-                Paragraph::new(text.clone())
-                    .wrap(Wrap { trim: false })
-                    .scroll((scroll_offset, 0)),
-                size,
-            );
+            let mut last_index = repl_pane.height as usize;
+
+            'build_repl_text: {
+                let yellow = Style::default().fg(Color::Yellow);
+                if last_index == 0 {
+                    break 'build_repl_text;
+                }
+
+                if let Some(input) = app_data.input.as_deref() {
+                    let input_line = Line::from(vec![
+                        Span::styled(INPUT_PREFIX, yellow),
+                        Span::raw(format!(" {input}▏")),
+                    ]);
+
+                    let input_text = if input_line.width() > repl_pane.width as usize {
+                        split_line(input_line, repl_pane.width as usize)
+                    } else {
+                        Text::from(input_line)
+                    };
+
+                    last_index = append_text_from_back(input_text, &mut repl_text, last_index);
+
+                    if last_index == 0 {
+                        break 'build_repl_text;
+                    }
+                }
+
+                for (input, output) in app_data.history.iter().rev() {
+                    let output_text = match output {
+                        Some(Ok(expr)) => expr_text(expr),
+                        Some(Err(err)) => user_error_text(err),
+                        None => Text::default(),
+                    };
+
+                    for line in output_text.lines.into_iter().rev() {
+                        let line_text = if line.width() > repl_pane.width as usize {
+                            split_line(line, repl_pane.width as usize)
+                        } else {
+                            Text::from(line)
+                        };
+
+                        last_index = append_text_from_back(line_text, &mut repl_text, last_index);
+
+                        if last_index == 0 {
+                            break 'build_repl_text;
+                        }
+                    }
+
+                    let input_line = Line::from(vec![
+                        Span::styled(INPUT_PREFIX, yellow),
+                        Span::raw(format!(" {input}")),
+                    ]);
+                    let input_text = if input_line.width() > repl_pane.width as usize {
+                        split_line(input_line, repl_pane.width as usize)
+                    } else {
+                        Text::from(input_line)
+                    };
+
+                    last_index = append_text_from_back(input_text, &mut repl_text, last_index);
+
+                    if last_index == 0 {
+                        break 'build_repl_text;
+                    }
+                }
+
+                let diff =
+                    (repl_pane.height as usize).saturating_sub(repl_text.height() - last_index);
+                if diff > 0 {
+                    repl_text.lines.rotate_left(diff);
+                }
+            }
+
+            f.render_widget(Paragraph::new(repl_text), repl_pane);
         })
         .context("drawing repl")
         .map(|_| ())
 }
 
-fn process_expr(input: &str, buffer: &mut Option<&mut Vec<Line>>) {
-    let mut expr = match parse::expr(input) {
-        Ok(expr) => expr,
-        Err(err) => {
-            report_user_error(err, buffer);
-            return;
-        }
-    };
-
-    match expr.reduce() {
-        Ok(()) => (),
-        Err(err) => {
-            report_user_error(err, buffer);
-            return;
-        }
-    };
-
-    println(style!(#Blue(expr.to_string())), buffer);
-}
-
-fn report_fatal_error(err: anyhow::Error, buffer: &mut Option<&mut Vec<Line>>) {
-    println(style!(#Red("An unexpected error occurred:")), buffer);
-    for (i, cause) in (1..).zip(err.chain()) {
-        println(style!(#Red(format!("    {i}: {cause}"))), buffer);
+fn split_line(input_line: Line, width: usize) -> Text {
+    if width == 0 {
+        return Text::from(input_line);
     }
-}
 
-fn report_user_error(err: anyhow::Error, buffer: &mut Option<&mut Vec<Line>>) {
-    println(style!(#Red("Invalid input:")), buffer);
-    for (i, cause) in (1..).zip(err.chain()) {
-        println(style!(#Red(format!("    {i}: {cause}"))), buffer);
+    let mut text = Text::from(Line::default());
+    for mut span in input_line.spans.into_iter() {
+        let line = text.lines.last_mut().unwrap();
+        let mut span_width = span.width();
+        let mut left_on_line = width - line.width();
+
+        if span_width <= left_on_line {
+            line.spans.push(span);
+            continue;
+        }
+
+        if left_on_line == 0 {
+            text.lines.push(Line::default());
+            left_on_line = width;
+        }
+
+        while span_width > left_on_line {
+            let line = text.lines.last_mut().unwrap();
+
+            let span_split = Span {
+                content: Cow::Owned(span.content[..left_on_line].to_owned()),
+                ..span
+            };
+            span.content = Cow::Owned(span.content[left_on_line..].to_owned());
+            span_width = span.width();
+
+            line.spans.push(span_split);
+            text.lines.push(Line::default());
+            left_on_line = width;
+        }
+
+        let input_line = text.lines.last_mut().unwrap();
+        input_line.spans.push(span);
     }
+
+    text
 }
 
-fn println<'a>(line: Line<'a>, buffer: &mut Option<&mut Vec<Line<'a>>>) {
-    if let Some(buffer) = buffer {
-        buffer.push(line);
-    } else {
+fn append_text_from_back<'a>(
+    mut text: Text<'a>,
+    buffer: &mut Text<'a>,
+    mut last_index: usize,
+) -> usize {
+    let size = last_index - last_index.saturating_sub(text.height());
+    last_index -= size;
+    let mut lines = text.lines.drain(text.height() - size..);
+    buffer.lines[last_index..last_index + size].fill_with(|| lines.next().unwrap());
+    last_index
+}
+
+fn expr_text(expr: impl Borrow<Expr>) -> Text<'static> {
+    Text::styled(expr.borrow().to_string(), Style::default().fg(Color::Blue))
+}
+
+fn fatal_error_text(err: impl Borrow<anyhow::Error>) -> Text<'static> {
+    let red = Style::default().fg(Color::Red);
+    let mut text = Text::styled("An unexpected error occurred:", red);
+    text.extend(error_text(err));
+    text
+}
+
+fn user_error_text(err: impl Borrow<anyhow::Error>) -> Text<'static> {
+    let red = Style::default().fg(Color::Red);
+    let mut text = Text::styled("Invalid input:", red);
+    text.extend(error_text(err));
+    text
+}
+
+fn error_text(err: impl Borrow<anyhow::Error>) -> Text<'static> {
+    let red = Style::default().fg(Color::Red);
+    let mut text = Text::default();
+    for (i, cause) in (1..).zip(err.borrow().chain()) {
+        text.extend(Text::styled(format!("    {i}: {cause}"), red));
+    }
+    text
+}
+
+fn print_text<'a>(text: impl Borrow<Text<'a>>) {
+    for line in &text.borrow().lines {
         let mut stdout = io::stdout();
 
         let mut fg = Color::Reset;
-        for span in line.spans {
+        for span in &line.spans {
             let new_fg = span.style.fg.unwrap_or(Color::Reset);
             if new_fg != fg {
                 let color = match new_fg {
@@ -243,7 +394,7 @@ fn println<'a>(line: Line<'a>, buffer: &mut Option<&mut Vec<Line<'a>>>) {
                 fg = new_fg;
             }
 
-            queue!(stdout, Print(span.content)).unwrap();
+            queue!(stdout, Print(&span.content)).unwrap();
         }
 
         if fg != Color::Reset {
