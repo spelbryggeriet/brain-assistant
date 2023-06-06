@@ -1,9 +1,10 @@
 mod expr;
 mod parse;
 mod reduce;
+mod text_composer;
 
 use std::{
-    borrow::{Borrow, Cow},
+    borrow::Borrow,
     io::{self, Stdout, Write},
 };
 
@@ -25,6 +26,8 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Paragraph},
     Terminal,
 };
+
+use crate::text_composer::TextComposer;
 
 #[derive(Default)]
 struct AppData {
@@ -64,69 +67,15 @@ impl AppData {
             "expected empty result"
         );
     }
+
+    fn finish_no_result(&mut self) {
+        self.info.steps.take();
+    }
 }
 
 #[derive(Default)]
 struct ExprInfo {
     steps: Option<Vec<Expr>>,
-}
-
-struct TextComposer<'a> {
-    text: Text<'a>,
-    dimensions: Rect,
-    first_index: usize,
-    last_index: usize,
-}
-
-impl<'a> TextComposer<'a> {
-    fn new(dimensions: Rect) -> Self {
-        Self {
-            text: Text {
-                lines: vec![Line::default(); dimensions.height as usize],
-            },
-            dimensions,
-            first_index: 0,
-            last_index: dimensions.height as usize,
-        }
-    }
-
-    fn extend_text(&mut self, mut text: Text<'a>) -> bool {
-        let size = (self.first_index + text.height()).min(self.last_index) - self.first_index;
-        self.first_index += size;
-        let mut lines = text.lines.drain(..size);
-        self.text.lines[self.first_index - size..self.first_index]
-            .fill_with(|| lines.next().unwrap());
-        self.available_lines() > 0
-    }
-
-    fn extend_text_from_back(&mut self, mut text: Text<'a>) -> bool {
-        let text_height = text.height();
-        let size = self.last_index
-            - self
-                .last_index
-                .saturating_sub(text_height)
-                .max(self.first_index);
-        self.last_index -= size;
-        let mut lines = text.lines.drain(text_height - size..);
-        self.text.lines[self.last_index..self.last_index + size]
-            .fill_with(|| lines.next().unwrap());
-        self.available_lines() > 0
-    }
-
-    fn available_lines(&self) -> usize {
-        self.last_index - self.first_index
-    }
-
-    fn finish(mut self) -> Text<'a> {
-        if self.first_index == 0 {
-            let diff = (self.dimensions.height as usize)
-                .saturating_sub(self.dimensions.height as usize - self.last_index);
-            if diff > 0 {
-                self.text.lines.rotate_left(diff);
-            }
-        }
-        self.text
-    }
 }
 
 fn main() {
@@ -239,6 +188,7 @@ fn repl(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> anyhow::Result<()>
 
         let last_input = app_data.last_submitted_input().unwrap();
         if last_input.trim().is_empty() {
+            app_data.finish_no_result();
             continue;
         }
 
@@ -277,18 +227,13 @@ fn draw_repl(
                 let yellow = Style::default().fg(Color::Yellow);
 
                 if let Some(input) = app_data.input.as_deref() {
-                    let input_line = Line::from(vec![
-                        Span::styled(INPUT_PREFIX, yellow),
-                        Span::raw(format!(" {input}▏")),
-                    ]);
+                    let has_lines_left =
+                        repl_text_composer.extend_text_from_back(Text::from(Line::from(vec![
+                            Span::styled(INPUT_PREFIX, yellow),
+                            Span::raw(format!(" {input}▏")),
+                        ])));
 
-                    let input_text = if input_line.width() > repl_pane.width as usize {
-                        split_line(input_line, repl_pane.width as usize)
-                    } else {
-                        Text::from(input_line)
-                    };
-
-                    if !repl_text_composer.extend_text_from_back(input_text) {
+                    if !has_lines_left {
                         break 'build_repl_text;
                     }
                 }
@@ -300,29 +245,17 @@ fn draw_repl(
                         None => Text::default(),
                     };
 
-                    for line in output_text.lines.into_iter().rev() {
-                        let line_text = if line.width() > repl_pane.width as usize {
-                            split_line(line, repl_pane.width as usize)
-                        } else {
-                            Text::from(line)
-                        };
-
-                        if !repl_text_composer.extend_text_from_back(line_text) {
-                            break 'build_repl_text;
-                        }
+                    if !repl_text_composer.extend_text_from_back(output_text) {
+                        break 'build_repl_text;
                     }
 
-                    let input_line = Line::from(vec![
-                        Span::styled(INPUT_PREFIX, yellow),
-                        Span::raw(format!(" {input}")),
-                    ]);
-                    let input_text = if input_line.width() > repl_pane.width as usize {
-                        split_line(input_line, repl_pane.width as usize)
-                    } else {
-                        Text::from(input_line)
-                    };
+                    let has_lines_left =
+                        repl_text_composer.extend_text_from_back(Text::from(Line::from(vec![
+                            Span::styled(INPUT_PREFIX, yellow),
+                            Span::raw(format!(" {input}")),
+                        ])));
 
-                    if !repl_text_composer.extend_text_from_back(input_text) {
+                    if !has_lines_left {
                         break 'build_repl_text;
                     }
                 }
@@ -345,16 +278,14 @@ fn draw_repl(
                 });
 
                 for (i, step) in (1..).zip(steps) {
-                    let has_lines_left = steps_text_composer.extend_text(split_line(
-                        Line::from(vec![
+                    let has_lines_left =
+                        steps_text_composer.extend_text(Text::from(Line::from(vec![
                             Span::styled(
                                 format!("({i}) "),
                                 Style::default().fg(Color::Rgb(75, 75, 75)),
                             ),
                             Span::styled(step.to_string(), Style::default().fg(Color::Blue)),
-                        ]),
-                        info_pane.width as usize,
-                    ));
+                        ])));
 
                     if !has_lines_left {
                         break;
@@ -387,49 +318,6 @@ fn draw_repl(
         })
         .context("drawing repl")
         .map(|_| ())
-}
-
-fn split_line(input_line: Line, width: usize) -> Text {
-    if width == 0 {
-        return Text::from(input_line);
-    }
-
-    let mut text = Text::from(Line::default());
-    for mut span in input_line.spans.into_iter() {
-        let line = text.lines.last_mut().unwrap();
-        let mut span_width = span.width();
-        let mut left_on_line = width - line.width();
-
-        if span_width <= left_on_line {
-            line.spans.push(span);
-            continue;
-        }
-
-        if left_on_line == 0 {
-            text.lines.push(Line::default());
-            left_on_line = width;
-        }
-
-        while span_width > left_on_line {
-            let line = text.lines.last_mut().unwrap();
-
-            let span_split = Span {
-                content: Cow::Owned(span.content[..left_on_line].to_owned()),
-                ..span
-            };
-            span.content = Cow::Owned(span.content[left_on_line..].to_owned());
-            span_width = span.width();
-
-            line.spans.push(span_split);
-            text.lines.push(Line::default());
-            left_on_line = width;
-        }
-
-        let input_line = text.lines.last_mut().unwrap();
-        input_line.spans.push(span);
-    }
-
-    text
 }
 
 fn expr_text(expr: impl Borrow<Expr>) -> Text<'static> {
