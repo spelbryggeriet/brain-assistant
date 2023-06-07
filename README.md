@@ -13,20 +13,42 @@ cargo install brain-assistant
 
 ## Usage
 
-Pass an expression to the `brain` command to parse and reduce an expression:
+Invoke the `brain` command without any arguments to start the graphical user
+interface, which contains a REPL pane and an information pane. You can write
+any number of expressions and get the reduced expression as well as extra
+info regarding the calculation. Exit the program by pressing `Ctrl-C` or
+`Esc`:
+
+[![asciicast](https://asciinema.org/a/MgDzdoPdN7JqwfSZpsV8Uyydu.svg)](https://asciinema.org/a/MgDzdoPdN7JqwfSZpsV8Uyydu?autoplay=1&loop=1)
+
+You can also use it in single line mode by passing an expression as an
+argument to the `brain` command, in which case it will parse and reduce the
+input as an expression:
 
 ```sh
-$ brain 1+2+3
+❯ brain 1+2+3
 6
-$ brain 1*2*3
+❯ brain 1*2*3
 6
-$ brain (1+2)*3
+❯ brain (1+2)*3
 9
 ```
 
-Invoke the `brain` command without any arguments to start the graphical user
-interface, with a REPL pane and an extra information pane. Exit the REPL by
-pressing `Ctrl-C` or `Esc`.
+Sometimes an expression can be misinterpreted as a flag argument, in which
+case you will need to use `--` to separate flags from input:
+
+```sh
+❯ brain -1+1
+error: unexpected argument '-1' found
+
+  tip: to pass '-1' as a value, use '-- -1'
+
+Usage: brain [expression]...
+
+For more information, try '--help'.
+❯ brain -- -1+1
+0
+```
 
 ## Tips and Tricks
 
