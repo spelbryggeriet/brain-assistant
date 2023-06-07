@@ -24,19 +24,9 @@ $ brain (1+2)*3
 9
 ```
 
-Invoke the `brain` command without any arguments to start the REPL:
-
-```sh
-$ brain
->> 1+1
-2
->> 1/2*5
-5/2
->> 2*x^2+3*x^2
-5*x^2
-```
-
-Exit the REPL by pressing `Ctrl-C`.
+Invoke the `brain` command without any arguments to start the graphical user
+interface, with a REPL pane and an extra information pane. Exit the REPL by
+pressing `Ctrl-C` or `Esc`.
 
 ## Tips and Tricks
 
