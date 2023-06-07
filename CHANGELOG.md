@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.2] - 2023-06-07
+
 ### Added
 
 - Dedicated TUI with a main REPL pane and an extra info pane.
