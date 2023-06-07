@@ -16,8 +16,8 @@ jobs:
 
     - name: Check changelog history
       run: |
-        git diff --exit-code origin/${{ github.event.pull_request.base.ref }} HEAD -- CHANGELOG.md
-        if [[ $? == 0 ]] ; then
+
+        if git diff --exit-code origin/${{ github.event.pull_request.base.ref }} HEAD -- CHANGELOG.md ; then
           echo "Changelog not updated"
           exit 1
         fi
