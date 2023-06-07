@@ -1,4 +1,4 @@
-name: Test
+name: CI
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
     - 'scripts/**'
     - '.gitignore'
     - '.github/**'
-    - '!.github/workflows/test.yml'
+    - '!.github/workflows/ci.yaml'
   pull_request:
     branches: [ main ]
     paths-ignore:
@@ -16,14 +16,14 @@ on:
     - 'scripts/**'
     - '.gitignore'
     - '.github/**'
-    - '!.github/workflows/test.yml'
+    - '!.github/workflows/ci.yaml'
 
 env:
   CARGO_TERM_COLOR: always
   RUST_VERSION: 1.70.0
 
 jobs:
-  test:
+  ci:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
