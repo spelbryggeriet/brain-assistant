@@ -1,5 +1,8 @@
 # Brain Assistant
 
+[![Build Status](https://github.com/spelbryggeriet/brain-assistant/workflows/Test/badge.svg)](https://github.com/spelbryggeriet/brain-assistant/actions?query=workflow:CI)
+[![Crate Status](https://img.shields.io/crates/v/brain-assistant.svg)](https://crates.io/crates/brain-assistant)
+
 Brain Assistant is a CLI tool intended for computing mathematical expressions
 and being an encyclopedia for mathematical concepts.
 
